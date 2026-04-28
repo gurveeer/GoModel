@@ -74,7 +74,7 @@ func (s *SQLiteStore) sqliteRecalculationEntries(ctx context.Context, params Rec
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, model, provider, endpoint, input_tokens, output_tokens, raw_data
+		SELECT id, model, provider, provider_name, endpoint, input_tokens, output_tokens, raw_data
 		FROM usage`+buildWhereClause(conditions), args...)
 	if err != nil {
 		return nil, fmt.Errorf("query sqlite usage costs for recalculation: %w", err)
@@ -84,17 +84,22 @@ func (s *SQLiteStore) sqliteRecalculationEntries(ctx context.Context, params Rec
 	entries := make([]recalculationEntry, 0)
 	for rows.Next() {
 		var entry recalculationEntry
+		var providerName sql.NullString
 		var rawData sql.NullString
 		if err := rows.Scan(
 			&entry.ID,
 			&entry.Model,
 			&entry.Provider,
+			&providerName,
 			&entry.Endpoint,
 			&entry.InputTokens,
 			&entry.OutputTokens,
 			&rawData,
 		); err != nil {
 			return nil, fmt.Errorf("scan sqlite usage cost row: %w", err)
+		}
+		if providerName.Valid {
+			entry.ProviderName = providerName.String
 		}
 		if rawData.Valid {
 			entry.RawData = rawDataFromJSON(rawData.String, entry.ID)

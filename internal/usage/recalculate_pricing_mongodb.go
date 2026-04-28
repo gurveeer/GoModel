@@ -111,6 +111,7 @@ func (s *MongoDBStore) recalculatePricingInMongoTransaction(ctx context.Context,
 			ID           string         `bson:"_id"`
 			Model        string         `bson:"model"`
 			Provider     string         `bson:"provider"`
+			ProviderName string         `bson:"provider_name"`
 			Endpoint     string         `bson:"endpoint"`
 			InputTokens  int            `bson:"input_tokens"`
 			OutputTokens int            `bson:"output_tokens"`
@@ -124,6 +125,7 @@ func (s *MongoDBStore) recalculatePricingInMongoTransaction(ctx context.Context,
 			ID:           row.ID,
 			Model:        row.Model,
 			Provider:     row.Provider,
+			ProviderName: row.ProviderName,
 			Endpoint:     row.Endpoint,
 			InputTokens:  row.InputTokens,
 			OutputTokens: row.OutputTokens,

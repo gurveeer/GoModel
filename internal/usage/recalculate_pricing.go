@@ -36,6 +36,7 @@ type recalculationEntry struct {
 	ID           string
 	Model        string
 	Provider     string
+	ProviderName string
 	Endpoint     string
 	InputTokens  int
 	OutputTokens int
@@ -59,9 +60,10 @@ func normalizedRecalculatePricingParams(params RecalculatePricingParams) Recalcu
 }
 
 func recalculateEntryCosts(entry recalculationEntry, resolver PricingResolver) recalculationUpdate {
+	pricingProvider := effectiveRecalculationPricingProvider(entry.Provider, entry.ProviderName)
 	var pricing *core.ModelPricing
 	if resolver != nil {
-		pricing = resolver.ResolvePricing(entry.Model, entry.Provider)
+		pricing = resolver.ResolvePricing(entry.Model, pricingProvider)
 	}
 	effectivePricing := pricingForEndpoint(pricing, entry.Endpoint)
 	result := CalculateGranularCost(entry.InputTokens, entry.OutputTokens, entry.RawData, entry.Provider, effectivePricing)
@@ -73,6 +75,13 @@ func recalculateEntryCosts(entry recalculationEntry, resolver PricingResolver) r
 		Caveat:     result.Caveat,
 		HasPricing: effectivePricing != nil,
 	}
+}
+
+func effectiveRecalculationPricingProvider(provider, providerName string) string {
+	if name := strings.TrimSpace(providerName); name != "" {
+		return name
+	}
+	return strings.TrimSpace(provider)
 }
 
 func updateRecalculatePricingResult(result *RecalculatePricingResult, update recalculationUpdate) {

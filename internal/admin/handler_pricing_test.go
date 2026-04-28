@@ -228,6 +228,11 @@ func TestRecalculateUsagePricingRejectsInvalidDateAndUserPath(t *testing.T) {
 			wantError: "invalid end_date format, expected YYYY-MM-DD",
 		},
 		{
+			name:      "inverted date range",
+			body:      `{"confirmation":"recalculate","start_date":"2026-04-29","end_date":"2026-04-28"}`,
+			wantError: "start_date must be on or before end_date",
+		},
+		{
 			name:      "invalid user path",
 			body:      `{"confirmation":"recalculate","user_path":"/team/../alpha"}`,
 			wantError: "invalid user_path: user path cannot contain '.' or '..' segments",

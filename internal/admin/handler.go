@@ -387,12 +387,15 @@ func buildDateRange(startStr, endStr string, days int, location *time.Location, 
 		if !endParsed {
 			end = today
 		}
-		return start, end, nil
+	} else {
+		days = normalizeDateRangeDays(days)
+		end = today
+		start = today.AddDate(0, 0, -(days - 1))
 	}
 
-	days = normalizeDateRangeDays(days)
-	end = today
-	start = today.AddDate(0, 0, -(days - 1))
+	if start.After(end) {
+		return time.Time{}, time.Time{}, core.NewInvalidRequestError("start_date must be on or before end_date", nil)
+	}
 	return start, end, nil
 }
 

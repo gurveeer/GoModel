@@ -2,6 +2,7 @@ package usage
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -70,7 +71,7 @@ func postgresRecalculationEntries(ctx context.Context, tx pgx.Tx, params Recalcu
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT id::text, model, provider, endpoint, input_tokens, output_tokens, raw_data::text
+		SELECT id::text, model, provider, provider_name, endpoint, input_tokens, output_tokens, raw_data::text
 		FROM usage`+buildWhereClause(conditions)+`
 		FOR UPDATE`, args...)
 	if err != nil {
@@ -81,17 +82,22 @@ func postgresRecalculationEntries(ctx context.Context, tx pgx.Tx, params Recalcu
 	entries := make([]recalculationEntry, 0)
 	for rows.Next() {
 		var entry recalculationEntry
+		var providerName sql.NullString
 		var rawData *string
 		if err := rows.Scan(
 			&entry.ID,
 			&entry.Model,
 			&entry.Provider,
+			&providerName,
 			&entry.Endpoint,
 			&entry.InputTokens,
 			&entry.OutputTokens,
 			&rawData,
 		); err != nil {
 			return nil, fmt.Errorf("scan postgres usage cost row: %w", err)
+		}
+		if providerName.Valid {
+			entry.ProviderName = providerName.String
 		}
 		if rawData != nil {
 			entry.RawData = rawDataFromJSON(*rawData, entry.ID)

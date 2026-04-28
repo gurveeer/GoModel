@@ -77,7 +77,7 @@ func TestSQLiteStoreRecalculatePricingUpdatesFilteredUsageCosts(t *testing.T) {
 		Provider: "primary-openai",
 		Model:    "gpt-4o",
 	}, staticTestPricingResolver{
-		"openai/gpt-4o": {
+		"primary-openai/gpt-4o": {
 			InputPerMtok:  &inputRate,
 			OutputPerMtok: &outputRate,
 		},
