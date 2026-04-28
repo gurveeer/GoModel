@@ -814,11 +814,16 @@ func initAdmin(
 
 	// Create usage reader (may be nil if no storage)
 	var reader usage.UsageReader
+	var pricingRecalculator usage.PricingRecalculator
 	if store != nil {
 		var err error
 		reader, err = usage.NewReader(store)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create usage reader: %w", err)
+		}
+		pricingRecalculator, err = usage.NewPricingRecalculator(store)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create usage pricing recalculator: %w", err)
 		}
 	}
 
@@ -837,6 +842,7 @@ func initAdmin(
 		reader,
 		registry,
 		admin.WithConfiguredProviders(configuredProviders),
+		admin.WithUsagePricingRecalculator(pricingRecalculator),
 		admin.WithAuditReader(auditReader),
 		admin.WithAuthKeys(authKeyService),
 		admin.WithAliases(aliasService),

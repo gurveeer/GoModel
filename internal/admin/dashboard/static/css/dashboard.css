@@ -3846,6 +3846,37 @@ body.conversation-drawer-open {
   max-width: 460px;
 }
 
+.pricing-recalculate-section {
+  width: 100%;
+}
+
+.pricing-recalculate-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(220px, 1fr) minmax(260px, 1fr);
+  align-items: end;
+  gap: 12px;
+  width: 100%;
+}
+
+.pricing-recalculate-date-field .date-picker,
+.pricing-recalculate-date-field .date-picker-trigger {
+  width: 100%;
+}
+
+.pricing-recalculate-date-field .date-picker-trigger {
+  justify-content: space-between;
+}
+
+.pricing-recalculate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pricing-recalculate-dialog {
+  max-width: 480px;
+}
+
 .budget-override-dialog-backdrop {
   z-index: 100;
 }
@@ -4328,6 +4359,15 @@ body.conversation-drawer-open {
     width: 100%;
   }
   .budget-settings-actions .pagination-btn {
+    width: 100%;
+  }
+  .pricing-recalculate-grid {
+    grid-template-columns: 1fr;
+  }
+  .pricing-recalculate-actions {
+    width: 100%;
+  }
+  .pricing-recalculate-actions .pagination-btn {
     width: 100%;
   }
 

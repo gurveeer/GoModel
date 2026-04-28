@@ -1,0 +1,137 @@
+package admin
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/labstack/echo/v5"
+
+	"gomodel/internal/aliases"
+	"gomodel/internal/providers"
+	"gomodel/internal/usage"
+)
+
+type mockPricingRecalculator struct {
+	calls  int
+	params usage.RecalculatePricingParams
+	result usage.RecalculatePricingResult
+	err    error
+}
+
+func (m *mockPricingRecalculator) RecalculatePricing(_ context.Context, params usage.RecalculatePricingParams, _ usage.PricingResolver) (usage.RecalculatePricingResult, error) {
+	m.calls++
+	m.params = params
+	if m.err != nil {
+		return usage.RecalculatePricingResult{}, m.err
+	}
+	return m.result, nil
+}
+
+func TestRecalculateUsagePricingResolvesAliasAndFilters(t *testing.T) {
+	catalog := newAliasTestCatalog()
+	catalog.add("openai/gpt-4o", "openai")
+	service, err := aliases.NewService(newAliasTestStore(aliases.Alias{
+		Name:           "smart",
+		TargetModel:    "gpt-4o",
+		TargetProvider: "openai",
+		Enabled:        true,
+	}), catalog)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+
+	recalculator := &mockPricingRecalculator{
+		result: usage.RecalculatePricingResult{
+			Status:       "ok",
+			Matched:      2,
+			Recalculated: 2,
+			WithPricing:  2,
+		},
+	}
+	h := NewHandler(nil, providers.NewModelRegistry(),
+		WithAliases(service),
+		WithUsagePricingRecalculator(recalculator),
+	)
+
+	body := bytes.NewBufferString(`{
+		"start_date":"2026-04-01",
+		"end_date":"2026-04-02",
+		"user_path":"team/alpha",
+		"selector":"smart",
+		"confirmation":"recalculate"
+	}`)
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/v1/usage/recalculate-pricing", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req.Header.Set(dashboardTimeZoneHeader, "Europe/Warsaw")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.RecalculateUsagePricing(c); err != nil {
+		t.Fatalf("RecalculateUsagePricing() error = %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if recalculator.calls != 1 {
+		t.Fatalf("recalculator calls = %d, want 1", recalculator.calls)
+	}
+
+	params := recalculator.params
+	if params.Provider != "openai" || params.Model != "gpt-4o" {
+		t.Fatalf("selector params = %q/%q, want openai/gpt-4o", params.Provider, params.Model)
+	}
+	if params.UserPath != "/team/alpha" {
+		t.Fatalf("UserPath = %q, want /team/alpha", params.UserPath)
+	}
+	if params.CacheMode != usage.CacheModeAll {
+		t.Fatalf("CacheMode = %q, want %q", params.CacheMode, usage.CacheModeAll)
+	}
+
+	location, err := time.LoadLocation("Europe/Warsaw")
+	if err != nil {
+		t.Fatalf("LoadLocation() error = %v", err)
+	}
+	wantStart := time.Date(2026, 4, 1, 0, 0, 0, 0, location)
+	wantEnd := time.Date(2026, 4, 2, 0, 0, 0, 0, location)
+	if !params.StartDate.Equal(wantStart) || !params.EndDate.Equal(wantEnd) {
+		t.Fatalf("date range = %s to %s, want %s to %s", params.StartDate, params.EndDate, wantStart, wantEnd)
+	}
+
+	var result usage.RecalculatePricingResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.Recalculated != 2 || result.WithPricing != 2 {
+		t.Fatalf("result = %+v, want recalculated=2 with_pricing=2", result)
+	}
+}
+
+func TestRecalculateUsagePricingRequiresConfirmation(t *testing.T) {
+	recalculator := &mockPricingRecalculator{}
+	h := NewHandler(nil, providers.NewModelRegistry(), WithUsagePricingRecalculator(recalculator))
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/v1/usage/recalculate-pricing", bytes.NewBufferString(`{"confirmation":"nope"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.RecalculateUsagePricing(c); err != nil {
+		t.Fatalf("RecalculateUsagePricing() returned handler error: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if recalculator.calls != 0 {
+		t.Fatalf("recalculator calls = %d, want 0", recalculator.calls)
+	}
+}
