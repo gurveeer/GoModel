@@ -690,6 +690,7 @@ func (h *Handler) UsageLog(c *echo.Context) error {
 // @Success      200      {object}  usage.RecalculatePricingResult
 // @Failure      400      {object}  core.GatewayError
 // @Failure      401      {object}  core.GatewayError
+// @Failure      500      {object}  core.GatewayError
 // @Failure      503      {object}  core.GatewayError
 // @Router       /admin/api/v1/usage/recalculate-pricing [post]
 func (h *Handler) RecalculateUsagePricing(c *echo.Context) error {
@@ -1644,6 +1645,9 @@ func (h *Handler) recalculatePricingSelector(raw string) (provider, model string
 	selector, err := core.ParseModelSelector(raw, "")
 	if err != nil {
 		return "", "", core.NewInvalidRequestError("invalid selector: "+err.Error(), err)
+	}
+	if selector.Provider == "" {
+		return "", "", core.NewInvalidRequestError("invalid selector: provider/model or alias is required", nil)
 	}
 	return selector.Provider, selector.Model, nil
 }

@@ -138,6 +138,79 @@ func TestRecalculateUsagePricingRequiresConfirmation(t *testing.T) {
 	}
 }
 
+func TestRecalculateUsagePricingFeatureUnavailable(t *testing.T) {
+	tests := []struct {
+		name      string
+		handler   func(*mockPricingRecalculator) *Handler
+		wantError string
+	}{
+		{
+			name: "missing recalculator",
+			handler: func(*mockPricingRecalculator) *Handler {
+				return NewHandler(nil, providers.NewModelRegistry())
+			},
+			wantError: "usage pricing recalculation is unavailable",
+		},
+		{
+			name: "missing model registry",
+			handler: func(recalculator *mockPricingRecalculator) *Handler {
+				return NewHandler(nil, nil, WithUsagePricingRecalculator(recalculator))
+			},
+			wantError: "model pricing metadata is unavailable",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recalculator := &mockPricingRecalculator{}
+			h := test.handler(recalculator)
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/admin/api/v1/usage/recalculate-pricing", bytes.NewBufferString(`{"confirmation":"recalculate"}`))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			if err := h.RecalculateUsagePricing(c); err != nil {
+				t.Fatalf("RecalculateUsagePricing() returned handler error: %v", err)
+			}
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), test.wantError) {
+				t.Fatalf("response body = %s, want %q", rec.Body.String(), test.wantError)
+			}
+			if recalculator.calls != 0 {
+				t.Fatalf("recalculator calls = %d, want 0", recalculator.calls)
+			}
+		})
+	}
+}
+
+func TestRecalculateUsagePricingInvalidSelector(t *testing.T) {
+	recalculator := &mockPricingRecalculator{}
+	h := NewHandler(nil, providers.NewModelRegistry(), WithUsagePricingRecalculator(recalculator))
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/v1/usage/recalculate-pricing", bytes.NewBufferString(`{"confirmation":"recalculate","selector":"invalid"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.RecalculateUsagePricing(c); err != nil {
+		t.Fatalf("RecalculateUsagePricing() returned handler error: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid selector") {
+		t.Fatalf("response body = %s, want invalid selector message", rec.Body.String())
+	}
+	if recalculator.calls != 0 {
+		t.Fatalf("recalculator calls = %d, want 0", recalculator.calls)
+	}
+}
+
 func TestRecalculateUsagePricingReturnsInternalErrorOnRecalculatorFailure(t *testing.T) {
 	recalculator := &mockPricingRecalculator{err: errors.New("storage write failed")}
 	h := NewHandler(nil, providers.NewModelRegistry(), WithUsagePricingRecalculator(recalculator))

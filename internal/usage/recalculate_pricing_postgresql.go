@@ -3,6 +3,8 @@ package usage
 import (
 	"context"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // RecalculatePricing updates matching PostgreSQL usage rows with costs computed
@@ -13,19 +15,19 @@ func (s *PostgreSQLStore) RecalculatePricing(ctx context.Context, params Recalcu
 	}
 	params = normalizedRecalculatePricingParams(params)
 
-	entries, err := s.postgresRecalculationEntries(ctx, params)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return RecalculatePricingResult{}, fmt.Errorf("begin postgres pricing recalculation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	entries, err := postgresRecalculationEntries(ctx, tx, params)
 	if err != nil {
 		return RecalculatePricingResult{}, err
 	}
 	if len(entries) == 0 {
 		return finalizeRecalculatePricingResult(RecalculatePricingResult{}), nil
 	}
-
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return RecalculatePricingResult{}, fmt.Errorf("begin postgres pricing recalculation: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	result := RecalculatePricingResult{}
 	for _, entry := range entries {
@@ -52,7 +54,7 @@ func (s *PostgreSQLStore) RecalculatePricing(ctx context.Context, params Recalcu
 	return finalizeRecalculatePricingResult(result), nil
 }
 
-func (s *PostgreSQLStore) postgresRecalculationEntries(ctx context.Context, params RecalculatePricingParams) ([]recalculationEntry, error) {
+func postgresRecalculationEntries(ctx context.Context, tx pgx.Tx, params RecalculatePricingParams) ([]recalculationEntry, error) {
 	conditions, args, nextIdx, err := pgUsageConditions(params.UsageQueryParams, 1)
 	if err != nil {
 		return nil, err
@@ -67,9 +69,10 @@ func (s *PostgreSQLStore) postgresRecalculationEntries(ctx context.Context, para
 		args = append(args, params.Model)
 	}
 
-	rows, err := s.pool.Query(ctx, `
+	rows, err := tx.Query(ctx, `
 		SELECT id::text, model, provider, endpoint, input_tokens, output_tokens, raw_data::text
-		FROM usage`+buildWhereClause(conditions), args...)
+		FROM usage`+buildWhereClause(conditions)+`
+		FOR UPDATE`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query postgres usage costs for recalculation: %w", err)
 	}
