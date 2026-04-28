@@ -11,6 +11,23 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
+type mongoPricingSession interface {
+	WithTransaction(context.Context, func(context.Context) (any, error)) (any, error)
+	EndSession(context.Context)
+}
+
+type mongoDriverPricingSession struct {
+	session *mongo.Session
+}
+
+func (s mongoDriverPricingSession) WithTransaction(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
+	return s.session.WithTransaction(ctx, fn)
+}
+
+func (s mongoDriverPricingSession) EndSession(ctx context.Context) {
+	s.session.EndSession(ctx)
+}
+
 // RecalculatePricing updates matching MongoDB usage documents with costs
 // computed from the supplied pricing resolver.
 func (s *MongoDBStore) RecalculatePricing(ctx context.Context, params RecalculatePricingParams, resolver PricingResolver) (RecalculatePricingResult, error) {
@@ -24,7 +41,7 @@ func (s *MongoDBStore) RecalculatePricing(ctx context.Context, params Recalculat
 		return RecalculatePricingResult{}, err
 	}
 
-	session, err := s.collection.Database().Client().StartSession()
+	session, err := s.startMongoPricingSession()
 	if err != nil {
 		return RecalculatePricingResult{}, fmt.Errorf("start mongodb pricing recalculation transaction: %w", err)
 	}
@@ -32,7 +49,7 @@ func (s *MongoDBStore) RecalculatePricing(ctx context.Context, params Recalculat
 
 	var result RecalculatePricingResult
 	_, err = session.WithTransaction(ctx, func(txCtx context.Context) (any, error) {
-		next, err := s.recalculatePricingInMongoTransaction(txCtx, filter, resolver)
+		next, err := s.recalculatePricingDocumentsInContext(txCtx, filter, resolver)
 		if err != nil {
 			if isMongoTransactionCapabilityError(err) {
 				return nil, &mongoTransactionFallbackError{err: err}
@@ -48,7 +65,7 @@ func (s *MongoDBStore) RecalculatePricing(ctx context.Context, params Recalculat
 				fallbackErr = err
 			}
 			slog.Warn("MongoDB transactions unavailable for pricing recalculation; falling back to non-transactional update", "error", fallbackErr)
-			result, err := s.recalculatePricingInMongoTransaction(ctx, filter, resolver)
+			result, err := s.recalculatePricingDocumentsInContext(ctx, filter, resolver)
 			if err != nil {
 				return RecalculatePricingResult{}, fmt.Errorf("recalculate mongodb usage costs without transaction: %w", errors.Join(fallbackErr, err))
 			}
@@ -57,6 +74,27 @@ func (s *MongoDBStore) RecalculatePricing(ctx context.Context, params Recalculat
 		return RecalculatePricingResult{}, fmt.Errorf("mongodb pricing recalculation transaction: %w", err)
 	}
 	return finalizeRecalculatePricingResult(result), nil
+}
+
+func (s *MongoDBStore) startMongoPricingSession() (mongoPricingSession, error) {
+	if s.startPricingSession != nil {
+		return s.startPricingSession()
+	}
+	if s.collection == nil {
+		return nil, fmt.Errorf("mongodb usage collection is not configured")
+	}
+	session, err := s.collection.Database().Client().StartSession()
+	if err != nil {
+		return nil, err
+	}
+	return mongoDriverPricingSession{session: session}, nil
+}
+
+func (s *MongoDBStore) recalculatePricingDocumentsInContext(ctx context.Context, filter bson.D, resolver PricingResolver) (RecalculatePricingResult, error) {
+	if s.recalculatePricingDocuments != nil {
+		return s.recalculatePricingDocuments(ctx, filter, resolver)
+	}
+	return s.recalculatePricingInMongoTransaction(ctx, filter, resolver)
 }
 
 type mongoTransactionFallbackError struct {

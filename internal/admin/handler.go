@@ -48,6 +48,7 @@ type Handler struct {
 	configuredProviders []providers.SanitizedProviderConfig
 
 	mutationMu sync.Mutex
+	pricingMu  sync.Mutex
 }
 
 // Option configures the admin API handler.
@@ -724,8 +725,8 @@ func (h *Handler) RecalculateUsagePricing(c *echo.Context) error {
 		return handleError(c, err)
 	}
 
-	h.mutationMu.Lock()
-	defer h.mutationMu.Unlock()
+	h.pricingMu.Lock()
+	defer h.pricingMu.Unlock()
 
 	result, err := h.usageRecalculator.RecalculatePricing(c.Request().Context(), params, h.registry)
 	if err != nil {

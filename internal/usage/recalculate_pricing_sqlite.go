@@ -6,6 +6,8 @@ import (
 	"fmt"
 )
 
+const defaultSQLiteRecalculationBatchSize = 500
+
 // RecalculatePricing updates matching SQLite usage rows with costs computed
 // from the supplied pricing resolver.
 func (s *SQLiteStore) RecalculatePricing(ctx context.Context, params RecalculatePricingParams, resolver PricingResolver) (RecalculatePricingResult, error) {
@@ -13,14 +15,6 @@ func (s *SQLiteStore) RecalculatePricing(ctx context.Context, params Recalculate
 		return RecalculatePricingResult{}, err
 	}
 	params = normalizedRecalculatePricingParams(params)
-
-	entries, err := s.sqliteRecalculationEntries(ctx, params)
-	if err != nil {
-		return RecalculatePricingResult{}, err
-	}
-	if len(entries) == 0 {
-		return finalizeRecalculatePricingResult(RecalculatePricingResult{}), nil
-	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -39,18 +33,30 @@ func (s *SQLiteStore) RecalculatePricing(ctx context.Context, params Recalculate
 	defer stmt.Close()
 
 	result := RecalculatePricingResult{}
-	for _, entry := range entries {
-		update := recalculateEntryCosts(entry, resolver)
-		if _, err := stmt.ExecContext(ctx,
-			nullableFloat(update.InputCost),
-			nullableFloat(update.OutputCost),
-			nullableFloat(update.TotalCost),
-			update.Caveat,
-			update.ID,
-		); err != nil {
-			return RecalculatePricingResult{}, fmt.Errorf("update sqlite usage cost %s: %w", update.ID, err)
+	lastID := ""
+	for {
+		entries, err := s.sqliteRecalculationEntries(ctx, tx, params, lastID, s.sqliteRecalculationBatchSize())
+		if err != nil {
+			return RecalculatePricingResult{}, err
 		}
-		updateRecalculatePricingResult(&result, update)
+		if len(entries) == 0 {
+			break
+		}
+
+		for _, entry := range entries {
+			update := recalculateEntryCosts(entry, resolver)
+			if _, err := stmt.ExecContext(ctx,
+				nullableFloat(update.InputCost),
+				nullableFloat(update.OutputCost),
+				nullableFloat(update.TotalCost),
+				update.Caveat,
+				update.ID,
+			); err != nil {
+				return RecalculatePricingResult{}, fmt.Errorf("update sqlite usage cost %s: %w", update.ID, err)
+			}
+			updateRecalculatePricingResult(&result, update)
+		}
+		lastID = entries[len(entries)-1].ID
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -59,10 +65,21 @@ func (s *SQLiteStore) RecalculatePricing(ctx context.Context, params Recalculate
 	return finalizeRecalculatePricingResult(result), nil
 }
 
-func (s *SQLiteStore) sqliteRecalculationEntries(ctx context.Context, params RecalculatePricingParams) ([]recalculationEntry, error) {
+func (s *SQLiteStore) sqliteRecalculationBatchSize() int {
+	if s.recalculationBatchSize > 0 {
+		return s.recalculationBatchSize
+	}
+	return defaultSQLiteRecalculationBatchSize
+}
+
+func (s *SQLiteStore) sqliteRecalculationEntries(ctx context.Context, tx *sql.Tx, params RecalculatePricingParams, lastID string, limit int) ([]recalculationEntry, error) {
 	conditions, args, err := sqliteUsageConditions(params.UsageQueryParams)
 	if err != nil {
 		return nil, err
+	}
+	if lastID != "" {
+		conditions = append(conditions, "id > ?")
+		args = append(args, lastID)
 	}
 	if params.Model != "" {
 		conditions = append(conditions, "model = ?")
@@ -72,10 +89,13 @@ func (s *SQLiteStore) sqliteRecalculationEntries(ctx context.Context, params Rec
 		conditions = append(conditions, "(provider = ? OR provider_name = ?)")
 		args = append(args, params.Provider, params.Provider)
 	}
+	args = append(args, limit)
 
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := tx.QueryContext(ctx, `
 		SELECT id, model, provider, provider_name, endpoint, input_tokens, output_tokens, raw_data
-		FROM usage`+buildWhereClause(conditions), args...)
+		FROM usage`+buildWhereClause(conditions)+`
+		ORDER BY id
+		LIMIT ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query sqlite usage costs for recalculation: %w", err)
 	}

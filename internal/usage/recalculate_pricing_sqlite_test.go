@@ -105,3 +105,84 @@ func TestSQLiteStoreRecalculatePricingUpdatesFilteredUsageCosts(t *testing.T) {
 		t.Fatalf("other total cost = %.4f, want %.4f", otherTotal, oldCost)
 	}
 }
+
+func TestSQLiteStoreRecalculatePricingProcessesBatches(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	store, err := NewSQLiteStore(db, 0)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	store.recalculationBatchSize = 1
+
+	ctx := context.Background()
+	if err := store.WriteBatch(ctx, []*UsageEntry{
+		{
+			ID:          "usage-1",
+			RequestID:   "req-1",
+			ProviderID:  "provider-1",
+			Timestamp:   time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC),
+			Model:       "gpt-4o",
+			Provider:    "openai",
+			Endpoint:    "/v1/chat/completions",
+			InputTokens: 1_000_000,
+		},
+		{
+			ID:           "usage-2",
+			RequestID:    "req-2",
+			ProviderID:   "provider-2",
+			Timestamp:    time.Date(2026, 4, 12, 11, 0, 0, 0, time.UTC),
+			Model:        "gpt-4o",
+			Provider:     "openai",
+			ProviderName: "primary-openai",
+			Endpoint:     "/v1/chat/completions",
+			InputTokens:  2_000_000,
+		},
+	}); err != nil {
+		t.Fatalf("WriteBatch() error = %v", err)
+	}
+
+	inputRate := 2.0
+	result, err := store.RecalculatePricing(ctx, RecalculatePricingParams{
+		Model: "gpt-4o",
+	}, staticTestPricingResolver{
+		"openai/gpt-4o": {
+			InputPerMtok: &inputRate,
+		},
+		"primary-openai/gpt-4o": {
+			InputPerMtok: &inputRate,
+		},
+	})
+	if err != nil {
+		t.Fatalf("RecalculatePricing() error = %v", err)
+	}
+	if result.Matched != 2 || result.Recalculated != 2 || result.WithPricing != 2 {
+		t.Fatalf("result = %+v, want two recalculated rows with pricing", result)
+	}
+
+	rows, err := db.Query(`SELECT id, input_cost FROM usage ORDER BY id`)
+	if err != nil {
+		t.Fatalf("query recalculated rows: %v", err)
+	}
+	defer rows.Close()
+
+	got := map[string]float64{}
+	for rows.Next() {
+		var id string
+		var inputCost float64
+		if err := rows.Scan(&id, &inputCost); err != nil {
+			t.Fatalf("scan recalculated row: %v", err)
+		}
+		got[id] = inputCost
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate recalculated rows: %v", err)
+	}
+	if got["usage-1"] != 2.0 || got["usage-2"] != 4.0 {
+		t.Fatalf("input costs = %+v, want usage-1=2 usage-2=4", got)
+	}
+}
