@@ -456,18 +456,26 @@ func TestResolve_ReleaseDateSuffixFallback(t *testing.T) {
 	}
 	list.buildReverseIndex()
 
-	meta := Resolve(list, "openrouter", "z-ai/glm-5.1-20260406")
-	if meta == nil {
-		t.Fatal("expected metadata via release-date suffix fallback")
-	}
-	if meta.Pricing == nil || meta.Pricing.CachedInputPerMtok == nil {
-		t.Fatal("expected OpenRouter provider pricing via fallback")
-	}
-	if *meta.Pricing.InputPerMtok != 1.05 {
-		t.Errorf("InputPerMtok = %f, want 1.05", *meta.Pricing.InputPerMtok)
-	}
-	if *meta.Pricing.CachedInputPerMtok != 0.525 {
-		t.Errorf("CachedInputPerMtok = %f, want 0.525", *meta.Pricing.CachedInputPerMtok)
+	for _, modelID := range []string{
+		"z-ai/glm-5.1-20260406",
+		"z-ai/glm-5.1-2026-04-06",
+		"z-ai/glm-5.1-2026",
+	} {
+		t.Run(modelID, func(t *testing.T) {
+			meta := Resolve(list, "openrouter", modelID)
+			if meta == nil {
+				t.Fatal("expected metadata via release-date suffix fallback")
+			}
+			if meta.Pricing == nil || meta.Pricing.CachedInputPerMtok == nil {
+				t.Fatal("expected OpenRouter provider pricing via fallback")
+			}
+			if *meta.Pricing.InputPerMtok != 1.05 {
+				t.Errorf("InputPerMtok = %f, want 1.05", *meta.Pricing.InputPerMtok)
+			}
+			if *meta.Pricing.CachedInputPerMtok != 0.525 {
+				t.Errorf("CachedInputPerMtok = %f, want 0.525", *meta.Pricing.CachedInputPerMtok)
+			}
+		})
 	}
 }
 

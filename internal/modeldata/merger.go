@@ -6,6 +6,10 @@ import (
 	"gomodel/internal/core"
 )
 
+// terminalReleaseDateSuffixPatterns are intentionally broad because provider
+// response IDs use mixed release suffixes: YYYYMMDD, YYYY-MM-DD, and four-digit
+// tokens that may be either YYYY or MMDD. These are only used after exact,
+// reverse-provider-model, and explicit alias lookup all fail.
 var terminalReleaseDateSuffixPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`[-_.]\d{8}$`),
 	regexp.MustCompile(`[-_.]\d{4}-\d{2}-\d{2}$`),
@@ -58,6 +62,8 @@ func resolveReleaseDateAlias(list *ModelList, providerType string, modelID strin
 }
 
 func stripTerminalReleaseDateSuffix(modelID string) (string, bool) {
+	// Strip one terminal release segment only. Repeated stripping could turn
+	// legitimate model names with date-like components into unrelated base IDs.
 	for _, pattern := range terminalReleaseDateSuffixPatterns {
 		loc := pattern.FindStringIndex(modelID)
 		if loc == nil || loc[0] == 0 {
