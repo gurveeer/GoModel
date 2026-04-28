@@ -412,6 +412,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 			budgetResult.Service,
 			app,
 			dashboardRuntimeConfig(appCfg, usageEnabledForDashboard),
+			usagePricingRecalculationConfigured(appCfg),
 			appCfg.Server.BasePath,
 			adminCfg.UIEnabled,
 		)
@@ -801,6 +802,7 @@ func initAdmin(
 	budgetService *budget.Service,
 	runtimeRefresher admin.RuntimeRefresher,
 	runtimeConfig admin.DashboardConfigResponse,
+	usagePricingRecalculationEnabled bool,
 	basePath string,
 	uiEnabled bool,
 ) (*admin.Handler, *dashboard.Handler, error) {
@@ -821,13 +823,15 @@ func initAdmin(
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create usage reader: %w", err)
 		}
-		pricingRecalculator, err = usage.NewPricingRecalculator(store)
-		if err != nil {
-			slog.Warn("usage pricing recalculation unavailable", "error", err)
-			pricingRecalculator = nil
+		if usagePricingRecalculationEnabled {
+			pricingRecalculator, err = usage.NewPricingRecalculator(store)
+			if err != nil {
+				slog.Warn("usage pricing recalculation unavailable", "error", err)
+				pricingRecalculator = nil
+			}
 		}
 	}
-	runtimeConfig.PricingRecalculation = dashboardEnabledValue(pricingRecalculator != nil)
+	runtimeConfig.PricingRecalculation = dashboardEnabledValue(usagePricingRecalculationEnabled && pricingRecalculator != nil)
 
 	// Create audit reader (only from audit storage, because the usage-only storage
 	// schema may not include the audit_logs table/collection).
@@ -985,6 +989,10 @@ func dashboardRuntimeConfig(cfg *config.Config, usageEnabled bool) admin.Dashboa
 		RedisURL:             dashboardEnabledValue(simpleResponseCacheConfigured(cfg)),
 		SemanticCacheEnabled: dashboardEnabledValue(semanticResponseCacheConfigured(cfg)),
 	}
+}
+
+func usagePricingRecalculationConfigured(cfg *config.Config) bool {
+	return cfg != nil && cfg.Usage.Enabled && cfg.Usage.PricingRecalculationEnabled
 }
 
 func cacheAnalyticsConfigured(cfg *config.Config, usageEnabled bool) bool {

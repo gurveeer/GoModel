@@ -83,6 +83,7 @@ logging:
 
 usage:
   enabled: true
+  pricing_recalculation_enabled: true
   enforce_returning_usage_data: true
   buffer_size: 1000
   flush_interval: 5
