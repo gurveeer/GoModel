@@ -3867,6 +3867,13 @@ body.conversation-drawer-open {
   justify-content: space-between;
 }
 
+.pricing-recalculate-date-field .date-picker-dropdown {
+  top: auto;
+  bottom: calc(100% + 6px);
+  right: auto;
+  left: 0;
+}
+
 .pricing-recalculate-actions {
   display: flex;
   flex-wrap: wrap;
