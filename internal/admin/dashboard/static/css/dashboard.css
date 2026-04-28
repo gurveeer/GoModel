@@ -3852,9 +3852,21 @@ body.conversation-drawer-open {
 
 .pricing-recalculate-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 320px) minmax(220px, 1fr) minmax(260px, 1fr);
+  grid-template-columns: minmax(220px, 320px) minmax(260px, 360px);
   align-items: end;
+  justify-content: start;
   gap: 12px;
+  width: 100%;
+}
+
+.pricing-recalculate-date-field {
+  grid-column: 1 / -1;
+  max-width: 320px;
+  width: 100%;
+}
+
+.pricing-recalculate-filter-field {
+  max-width: 360px;
   width: 100%;
 }
 
