@@ -73,6 +73,7 @@ test('recalculatePricing posts after typed confirmation', async () => {
 
     module.selectedPreset = '30';
     module.typedConfirmationDialog = { open: true, value: 'recalculate' };
+    module.workflowRuntimeBooleanFlag = () => true;
     module.requestOptions = (options) => options || {};
     module.handleFetchResponse = () => true;
     module.closePricingRecalculateDialog = () => {
@@ -93,4 +94,22 @@ test('recalculatePricing posts after typed confirmation', async () => {
     }));
     assert.match(module.pricingRecalculateNotice, /Pricing recalculated for 3 of 3 usage records\./);
     assert.match(module.pricingRecalculateNotice, /1 usage record still lacks pricing metadata\./);
+});
+
+test('recalculatePricing does not post when feature flag is disabled', async () => {
+    let calls = 0;
+    const module = createPricingModule({
+        fetch() {
+            calls++;
+            return Promise.resolve({ ok: true });
+        }
+    });
+
+    module.workflowRuntimeBooleanFlag = () => false;
+    module.typedConfirmationDialog = { open: true, value: 'recalculate' };
+
+    await module.recalculatePricing();
+
+    assert.equal(calls, 0);
+    assert.equal(module.pricingRecalculateError, 'Usage pricing recalculation is unavailable.');
 });

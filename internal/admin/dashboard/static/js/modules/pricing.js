@@ -8,6 +8,12 @@
             pricingRecalculateLoading: false,
             pricingRecalculateDialogOpen: false,
 
+            pricingRecalculationEnabled() {
+                return typeof this.workflowRuntimeBooleanFlag === 'function'
+                    ? this.workflowRuntimeBooleanFlag('USAGE_PRICING_RECALCULATION_ENABLED', false)
+                    : false;
+            },
+
             pricingRecalculateDatePayload() {
                 if (this.selectedPreset) {
                     return { days: parseInt(this.selectedPreset, 10) || 30 };
@@ -31,6 +37,10 @@
             },
 
             openPricingRecalculateDialog() {
+                if (!this.pricingRecalculationEnabled()) {
+                    this.pricingRecalculateError = 'Usage pricing recalculation is unavailable.';
+                    return;
+                }
                 if (this.pricingRecalculateLoading) {
                     return;
                 }
@@ -72,6 +82,10 @@
             },
 
             async recalculatePricing() {
+                if (!this.pricingRecalculationEnabled()) {
+                    this.pricingRecalculateError = 'Usage pricing recalculation is unavailable.';
+                    return;
+                }
                 if (this.pricingRecalculateLoading) {
                     return;
                 }

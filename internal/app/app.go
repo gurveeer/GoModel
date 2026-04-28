@@ -823,9 +823,11 @@ func initAdmin(
 		}
 		pricingRecalculator, err = usage.NewPricingRecalculator(store)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create usage pricing recalculator: %w", err)
+			slog.Warn("usage pricing recalculation unavailable", "error", err)
+			pricingRecalculator = nil
 		}
 	}
+	runtimeConfig.PricingRecalculation = dashboardEnabledValue(pricingRecalculator != nil)
 
 	// Create audit reader (only from audit storage, because the usage-only storage
 	// schema may not include the audit_logs table/collection).

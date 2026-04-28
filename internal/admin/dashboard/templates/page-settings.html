@@ -144,7 +144,7 @@
                  x-text="budgetSettingsError"></div>
         </div>
 
-        <div class="settings-refresh-section pricing-recalculate-section">
+        <div class="settings-refresh-section pricing-recalculate-section" x-show="pricingRecalculationEnabled()" x-cloak>
             <div class="inline-help-section" x-data="{ open: false, copyId: 'pricing-recalculate-help-copy', showLabel: 'Show pricing recalculation help', hideLabel: 'Hide pricing recalculation help', text: 'Recalculate stored usage costs from the current model pricing metadata. Filters are applied to the selected date range, user path subtree, and provider/model selector or alias.' }">
                 <div class="inline-help-title-row">
                     <h3>Usage Pricing Recalculation</h3>
@@ -179,7 +179,7 @@
             <div class="settings-refresh-actions pricing-recalculate-actions">
                 <button type="button"
                         class="pagination-btn pagination-btn-danger pagination-btn-with-icon"
-                        :disabled="pricingRecalculateLoading"
+                        :disabled="pricingRecalculateLoading || !pricingRecalculationEnabled()"
                         :aria-busy="pricingRecalculateLoading ? 'true' : 'false'"
                         aria-describedby="pricing-recalculate-help-copy"
                         @click="openPricingRecalculateDialog()">
@@ -188,7 +188,7 @@
                 </button>
             </div>
         </div>
-        <div>
+        <div x-show="pricingRecalculationEnabled()" x-cloak>
             <div class="alert alert-success settings-refresh-alert"
                  role="status"
                  aria-live="polite"

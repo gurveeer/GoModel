@@ -20,6 +20,28 @@ func (s *MongoDBStore) RecalculatePricing(ctx context.Context, params Recalculat
 		return RecalculatePricingResult{}, err
 	}
 
+	session, err := s.collection.Database().Client().StartSession()
+	if err != nil {
+		return RecalculatePricingResult{}, fmt.Errorf("start mongodb pricing recalculation transaction: %w", err)
+	}
+	defer session.EndSession(ctx)
+
+	var result RecalculatePricingResult
+	_, err = session.WithTransaction(ctx, func(txCtx context.Context) (any, error) {
+		next, err := s.recalculatePricingInMongoTransaction(txCtx, filter, resolver)
+		if err != nil {
+			return nil, err
+		}
+		result = next
+		return nil, nil
+	})
+	if err != nil {
+		return RecalculatePricingResult{}, fmt.Errorf("mongodb pricing recalculation transaction: %w", err)
+	}
+	return finalizeRecalculatePricingResult(result), nil
+}
+
+func (s *MongoDBStore) recalculatePricingInMongoTransaction(ctx context.Context, filter bson.D, resolver PricingResolver) (RecalculatePricingResult, error) {
 	cursor, err := s.collection.Find(ctx, filter)
 	if err != nil {
 		return RecalculatePricingResult{}, fmt.Errorf("query mongodb usage costs for recalculation: %w", err)

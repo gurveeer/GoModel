@@ -62,6 +62,7 @@ const (
 	DashboardConfigCacheEnabled         = "CACHE_ENABLED"
 	DashboardConfigRedisURL             = "REDIS_URL"
 	DashboardConfigSemanticCacheEnabled = "SEMANTIC_CACHE_ENABLED"
+	DashboardConfigPricingRecalculation = "USAGE_PRICING_RECALCULATION_ENABLED"
 )
 
 // statusClientClosedRequest is the de facto status used by proxies for client-aborted requests.
@@ -77,6 +78,7 @@ type DashboardConfigResponse struct {
 	CacheEnabled         string `json:"CACHE_ENABLED,omitempty"`
 	RedisURL             string `json:"REDIS_URL,omitempty"`
 	SemanticCacheEnabled string `json:"SEMANTIC_CACHE_ENABLED,omitempty"`
+	PricingRecalculation string `json:"USAGE_PRICING_RECALCULATION_ENABLED,omitempty"`
 }
 
 type providerStatusSummaryResponse struct {
@@ -260,6 +262,7 @@ func normalizeDashboardRuntimeConfig(values DashboardConfigResponse) DashboardCo
 		CacheEnabled:         strings.TrimSpace(values.CacheEnabled),
 		RedisURL:             strings.TrimSpace(values.RedisURL),
 		SemanticCacheEnabled: strings.TrimSpace(values.SemanticCacheEnabled),
+		PricingRecalculation: strings.TrimSpace(values.PricingRecalculation),
 	}
 }
 
@@ -338,49 +341,59 @@ func parseDateRangeParams(c *echo.Context) (usage.UsageQueryParams, error) {
 	now := timeNow().In(location)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
 
-	startStr := c.QueryParam("start_date")
-	endStr := c.QueryParam("end_date")
-
-	var startParsed, endParsed bool
-
-	if startStr != "" {
-		t, err := time.ParseInLocation("2006-01-02", startStr, location)
-		if err != nil {
-			return params, core.NewInvalidRequestError("invalid start_date format, expected YYYY-MM-DD", nil)
-		}
-		params.StartDate = t
-		startParsed = true
-	}
-
-	if endStr != "" {
-		t, err := time.ParseInLocation("2006-01-02", endStr, location)
-		if err != nil {
-			return params, core.NewInvalidRequestError("invalid end_date format, expected YYYY-MM-DD", nil)
-		}
-		params.EndDate = t
-		endParsed = true
-	}
-
-	if startParsed || endParsed {
-		if !startParsed {
-			params.StartDate = params.EndDate.AddDate(0, 0, -29)
-		}
-		if !endParsed {
-			params.EndDate = today
-		}
-		return params, nil
-	}
-
 	days := 30
 	if d := c.QueryParam("days"); d != "" {
 		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
 			days = parsed
 		}
 	}
-	params.EndDate = today
-	params.StartDate = today.AddDate(0, 0, -(days - 1))
 
+	start, end, err := buildDateRange(strings.TrimSpace(c.QueryParam("start_date")), strings.TrimSpace(c.QueryParam("end_date")), days, location, today)
+	if err != nil {
+		return params, err
+	}
+	params.StartDate = start
+	params.EndDate = end
 	return params, nil
+}
+
+func buildDateRange(startStr, endStr string, days int, location *time.Location, today time.Time) (time.Time, time.Time, error) {
+	var start, end time.Time
+	var startParsed, endParsed bool
+
+	if startStr != "" {
+		t, err := time.ParseInLocation("2006-01-02", startStr, location)
+		if err != nil {
+			return time.Time{}, time.Time{}, core.NewInvalidRequestError("invalid start_date format, expected YYYY-MM-DD", nil)
+		}
+		start = t
+		startParsed = true
+	}
+	if endStr != "" {
+		t, err := time.ParseInLocation("2006-01-02", endStr, location)
+		if err != nil {
+			return time.Time{}, time.Time{}, core.NewInvalidRequestError("invalid end_date format, expected YYYY-MM-DD", nil)
+		}
+		end = t
+		endParsed = true
+	}
+
+	if startParsed || endParsed {
+		if !startParsed {
+			start = end.AddDate(0, 0, -29)
+		}
+		if !endParsed {
+			end = today
+		}
+		return start, end, nil
+	}
+
+	if days <= 0 {
+		days = 30
+	}
+	end = today
+	start = today.AddDate(0, 0, -(days - 1))
+	return start, end, nil
 }
 
 func dashboardTimeZone(c *echo.Context) (string, *time.Location) {
@@ -1603,43 +1616,12 @@ func recalculatePricingDateParams(c *echo.Context, req recalculatePricingRequest
 	now := timeNow().In(location)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
 
-	startStr := strings.TrimSpace(req.StartDate)
-	endStr := strings.TrimSpace(req.EndDate)
-
-	var startParsed, endParsed bool
-	if startStr != "" {
-		t, err := time.ParseInLocation("2006-01-02", startStr, location)
-		if err != nil {
-			return params, core.NewInvalidRequestError("invalid start_date format, expected YYYY-MM-DD", nil)
-		}
-		params.StartDate = t
-		startParsed = true
+	start, end, err := buildDateRange(strings.TrimSpace(req.StartDate), strings.TrimSpace(req.EndDate), req.Days, location, today)
+	if err != nil {
+		return params, err
 	}
-	if endStr != "" {
-		t, err := time.ParseInLocation("2006-01-02", endStr, location)
-		if err != nil {
-			return params, core.NewInvalidRequestError("invalid end_date format, expected YYYY-MM-DD", nil)
-		}
-		params.EndDate = t
-		endParsed = true
-	}
-
-	if startParsed || endParsed {
-		if !startParsed {
-			params.StartDate = params.EndDate.AddDate(0, 0, -29)
-		}
-		if !endParsed {
-			params.EndDate = today
-		}
-		return params, nil
-	}
-
-	days := req.Days
-	if days <= 0 {
-		days = 30
-	}
-	params.EndDate = today
-	params.StartDate = today.AddDate(0, 0, -(days - 1))
+	params.StartDate = start
+	params.EndDate = end
 	return params, nil
 }
 

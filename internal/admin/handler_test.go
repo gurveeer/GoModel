@@ -1718,6 +1718,7 @@ func TestDashboardConfig_ReturnsAllowlistedRuntimeFlags(t *testing.T) {
 		CacheEnabled:         "on",
 		RedisURL:             "on",
 		SemanticCacheEnabled: "off",
+		PricingRecalculation: "on",
 	}))
 	c, rec := newHandlerContext("/admin/api/v1/dashboard/config")
 
@@ -1755,6 +1756,9 @@ func TestDashboardConfig_ReturnsAllowlistedRuntimeFlags(t *testing.T) {
 	}
 	if got := body.SemanticCacheEnabled; got != "off" {
 		t.Fatalf("SEMANTIC_CACHE_ENABLED = %q, want off", got)
+	}
+	if got := body.PricingRecalculation; got != "on" {
+		t.Fatalf("USAGE_PRICING_RECALCULATION_ENABLED = %q, want on", got)
 	}
 	if rec.Body.String() == "" || strings.Contains(rec.Body.String(), "UNRELATED_FLAG") {
 		t.Fatal("UNRELATED_FLAG should not be exposed")

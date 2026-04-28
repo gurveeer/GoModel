@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,5 +135,29 @@ func TestRecalculateUsagePricingRequiresConfirmation(t *testing.T) {
 	}
 	if recalculator.calls != 0 {
 		t.Fatalf("recalculator calls = %d, want 0", recalculator.calls)
+	}
+}
+
+func TestRecalculateUsagePricingReturnsInternalErrorOnRecalculatorFailure(t *testing.T) {
+	recalculator := &mockPricingRecalculator{err: errors.New("storage write failed")}
+	h := NewHandler(nil, providers.NewModelRegistry(), WithUsagePricingRecalculator(recalculator))
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/v1/usage/recalculate-pricing", bytes.NewBufferString(`{"confirmation":"recalculate"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.RecalculateUsagePricing(c); err != nil {
+		t.Fatalf("RecalculateUsagePricing() returned handler error: %v", err)
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusInternalServerError, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "failed to recalculate usage pricing") {
+		t.Fatalf("response body = %s, want recalculation failure message", rec.Body.String())
+	}
+	if recalculator.calls != 1 {
+		t.Fatalf("recalculator calls = %d, want 1", recalculator.calls)
 	}
 }

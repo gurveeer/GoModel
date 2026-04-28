@@ -57,14 +57,14 @@ func (s *PostgreSQLStore) postgresRecalculationEntries(ctx context.Context, para
 	if err != nil {
 		return nil, err
 	}
-	if params.Model != "" {
-		conditions = append(conditions, fmt.Sprintf("model = $%d", nextIdx))
-		args = append(args, params.Model)
-		nextIdx++
-	}
 	if params.Provider != "" {
 		conditions = append(conditions, fmt.Sprintf("(provider = $%d OR provider_name = $%d)", nextIdx, nextIdx+1))
 		args = append(args, params.Provider, params.Provider)
+		nextIdx += 2
+	}
+	if params.Model != "" {
+		conditions = append(conditions, fmt.Sprintf("model = $%d", nextIdx))
+		args = append(args, params.Model)
 	}
 
 	rows, err := s.pool.Query(ctx, `
