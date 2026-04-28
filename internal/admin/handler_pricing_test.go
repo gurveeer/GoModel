@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"gomodel/internal/aliases"
+	"gomodel/internal/core"
 	"gomodel/internal/providers"
 	"gomodel/internal/usage"
 )
@@ -410,5 +411,59 @@ func TestRecalculateUsagePricingReturnsInternalErrorOnRecalculatorFailure(t *tes
 	}
 	if recalculator.calls != 1 {
 		t.Fatalf("recalculator calls = %d, want 1", recalculator.calls)
+	}
+}
+
+func TestRecalculateUsagePricingPreservesExpectedRecalculatorErrors(t *testing.T) {
+	tests := []struct {
+		name           string
+		err            error
+		wantStatus     int
+		wantBodyString string
+	}{
+		{
+			name:           "context canceled",
+			err:            context.Canceled,
+			wantStatus:     statusClientClosedRequest,
+			wantBodyString: "request_canceled",
+		},
+		{
+			name:           "context deadline exceeded",
+			err:            context.DeadlineExceeded,
+			wantStatus:     http.StatusGatewayTimeout,
+			wantBodyString: "request_timeout",
+		},
+		{
+			name:           "gateway error",
+			err:            core.NewRateLimitError("usage", "pricing recalculation is rate limited"),
+			wantStatus:     http.StatusTooManyRequests,
+			wantBodyString: "rate_limit_error",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recalculator := &mockPricingRecalculator{err: test.err}
+			h := NewHandler(nil, providers.NewModelRegistry(), WithUsagePricingRecalculator(recalculator))
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/admin/api/v1/usage/recalculate-pricing", bytes.NewBufferString(`{"confirmation":"recalculate"}`))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			if err := h.RecalculateUsagePricing(c); err != nil {
+				t.Fatalf("RecalculateUsagePricing() returned handler error: %v", err)
+			}
+			if rec.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d body=%s", rec.Code, test.wantStatus, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), test.wantBodyString) {
+				t.Fatalf("response body = %s, want %q", rec.Body.String(), test.wantBodyString)
+			}
+			if recalculator.calls != 1 {
+				t.Fatalf("recalculator calls = %d, want 1", recalculator.calls)
+			}
+		})
 	}
 }

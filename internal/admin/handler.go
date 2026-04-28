@@ -730,6 +730,12 @@ func (h *Handler) RecalculateUsagePricing(c *echo.Context) error {
 
 	result, err := h.usageRecalculator.RecalculatePricing(c.Request().Context(), params, h.registry)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return handleError(c, err)
+		}
+		if gatewayErr, ok := errors.AsType[*core.GatewayError](err); ok {
+			return handleError(c, gatewayErr)
+		}
 		return handleError(c, core.NewProviderError("usage", http.StatusInternalServerError, "failed to recalculate usage pricing", err))
 	}
 	return c.JSON(http.StatusOK, result)
