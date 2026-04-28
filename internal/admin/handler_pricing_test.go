@@ -211,6 +211,94 @@ func TestRecalculateUsagePricingInvalidSelector(t *testing.T) {
 	}
 }
 
+func TestRecalculateUsagePricingRejectsInvalidDateAndUserPath(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantError string
+	}{
+		{
+			name:      "invalid start date",
+			body:      `{"confirmation":"recalculate","start_date":"2026/04/01"}`,
+			wantError: "invalid start_date format, expected YYYY-MM-DD",
+		},
+		{
+			name:      "invalid end date",
+			body:      `{"confirmation":"recalculate","end_date":"tomorrow"}`,
+			wantError: "invalid end_date format, expected YYYY-MM-DD",
+		},
+		{
+			name:      "invalid user path",
+			body:      `{"confirmation":"recalculate","user_path":"/team/../alpha"}`,
+			wantError: "invalid user_path: user path cannot contain '.' or '..' segments",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recalculator := &mockPricingRecalculator{}
+			h := NewHandler(nil, providers.NewModelRegistry(), WithUsagePricingRecalculator(recalculator))
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/admin/api/v1/usage/recalculate-pricing", bytes.NewBufferString(test.body))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			if err := h.RecalculateUsagePricing(c); err != nil {
+				t.Fatalf("RecalculateUsagePricing() returned handler error: %v", err)
+			}
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), test.wantError) {
+				t.Fatalf("response body = %s, want %q", rec.Body.String(), test.wantError)
+			}
+			if recalculator.calls != 0 {
+				t.Fatalf("recalculator calls = %d, want 0", recalculator.calls)
+			}
+		})
+	}
+}
+
+func TestRecalculateUsagePricingClampsRequestedDays(t *testing.T) {
+	originalTimeNow := timeNow
+	timeNow = func() time.Time {
+		return time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	}
+	defer func() {
+		timeNow = originalTimeNow
+	}()
+
+	recalculator := &mockPricingRecalculator{
+		result: usage.RecalculatePricingResult{Status: "ok"},
+	}
+	h := NewHandler(nil, providers.NewModelRegistry(), WithUsagePricingRecalculator(recalculator))
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/v1/usage/recalculate-pricing", bytes.NewBufferString(`{"confirmation":"recalculate","days":9999}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.RecalculateUsagePricing(c); err != nil {
+		t.Fatalf("RecalculateUsagePricing() returned handler error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if recalculator.calls != 1 {
+		t.Fatalf("recalculator calls = %d, want 1", recalculator.calls)
+	}
+
+	expectedEnd := time.Date(2026, 4, 28, 0, 0, 0, 0, time.UTC)
+	expectedStart := expectedEnd.AddDate(0, 0, -(maxDateRangeDays - 1))
+	if !recalculator.params.EndDate.Equal(expectedEnd) || !recalculator.params.StartDate.Equal(expectedStart) {
+		t.Fatalf("date range = %s to %s, want %s to %s",
+			recalculator.params.StartDate, recalculator.params.EndDate, expectedStart, expectedEnd)
+	}
+}
+
 func TestRecalculateUsagePricingReturnsInternalErrorOnRecalculatorFailure(t *testing.T) {
 	recalculator := &mockPricingRecalculator{err: errors.New("storage write failed")}
 	h := NewHandler(nil, providers.NewModelRegistry(), WithUsagePricingRecalculator(recalculator))

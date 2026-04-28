@@ -2341,6 +2341,32 @@ func TestParseUsageParams_DaysExplicit(t *testing.T) {
 	}
 }
 
+func TestParseUsageParams_DaysClamped(t *testing.T) {
+	originalTimeNow := timeNow
+	timeNow = func() time.Time {
+		return time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	}
+	defer func() {
+		timeNow = originalTimeNow
+	}()
+
+	c := newContext("days=9999")
+	params, err := parseUsageParams(c)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedEnd := time.Date(2026, 4, 28, 0, 0, 0, 0, time.UTC)
+	expectedStart := expectedEnd.AddDate(0, 0, -(maxDateRangeDays - 1))
+
+	if !params.StartDate.Equal(expectedStart) {
+		t.Errorf("expected start date %v, got %v", expectedStart, params.StartDate)
+	}
+	if !params.EndDate.Equal(expectedEnd) {
+		t.Errorf("expected end date %v, got %v", expectedEnd, params.EndDate)
+	}
+}
+
 func TestParseUsageParams_StartAndEndDate(t *testing.T) {
 	c := newContext("start_date=2026-01-01&end_date=2026-01-31")
 	params, err := parseUsageParams(c)

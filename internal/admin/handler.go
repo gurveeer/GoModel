@@ -294,6 +294,8 @@ var validIntervals = map[string]bool{
 const (
 	dashboardTimeZoneHeader = "X-GoModel-Timezone"
 	defaultDashboardTZ      = "UTC"
+	defaultDateRangeDays    = 30
+	maxDateRangeDays        = 365
 )
 
 var timeNow = time.Now
@@ -341,10 +343,10 @@ func parseDateRangeParams(c *echo.Context) (usage.UsageQueryParams, error) {
 	now := timeNow().In(location)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
 
-	days := 30
+	days := defaultDateRangeDays
 	if d := c.QueryParam("days"); d != "" {
 		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
-			days = parsed
+			days = min(parsed, maxDateRangeDays)
 		}
 	}
 
@@ -388,12 +390,17 @@ func buildDateRange(startStr, endStr string, days int, location *time.Location, 
 		return start, end, nil
 	}
 
-	if days <= 0 {
-		days = 30
-	}
+	days = normalizeDateRangeDays(days)
 	end = today
 	start = today.AddDate(0, 0, -(days - 1))
 	return start, end, nil
+}
+
+func normalizeDateRangeDays(days int) int {
+	if days <= 0 {
+		return defaultDateRangeDays
+	}
+	return min(days, maxDateRangeDays)
 }
 
 func dashboardTimeZone(c *echo.Context) (string, *time.Location) {
@@ -1617,7 +1624,7 @@ func recalculatePricingDateParams(c *echo.Context, req recalculatePricingRequest
 	now := timeNow().In(location)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
 
-	start, end, err := buildDateRange(strings.TrimSpace(req.StartDate), strings.TrimSpace(req.EndDate), req.Days, location, today)
+	start, end, err := buildDateRange(strings.TrimSpace(req.StartDate), strings.TrimSpace(req.EndDate), normalizeDateRangeDays(req.Days), location, today)
 	if err != nil {
 		return params, err
 	}
