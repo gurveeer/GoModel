@@ -361,7 +361,7 @@
 
             costSourceTooltip(entry) {
                 if (this.usesOpenRouterCreditPricing(entry)) {
-                    return 'Cost from OpenRouter response credits. OpenRouter credits are USD-based.';
+                    return 'Costs from OpenRouter USD-based credits.';
                 }
                 return '';
             }

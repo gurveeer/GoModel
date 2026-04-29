@@ -35,9 +35,9 @@ test('usesOpenRouterCreditPricing detects OpenRouter credit cost source', () => 
 test('costSourceTooltip explains OpenRouter credit costs', () => {
     const module = createUsageModule();
 
-    assert.match(
+    assert.equal(
         module.costSourceTooltip({ cost_source: 'openrouter_credits' }),
-        /OpenRouter response credits/
+        'Costs from OpenRouter USD-based credits.'
     );
     assert.equal(module.costSourceTooltip({ cost_source: 'model_pricing' }), '');
 });
