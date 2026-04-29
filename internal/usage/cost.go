@@ -275,7 +275,7 @@ func openRouterCreditCost(rawData map[string]any, providerType string) (CostResu
 		return CostResult{}, false
 	}
 	total, ok := extractFloat(rawData, "cost")
-	if !ok || total < 0 {
+	if !ok || !isFiniteCost(total) || total < 0 {
 		return CostResult{}, false
 	}
 
@@ -311,7 +311,7 @@ func openRouterCreditCostSplit(rawData map[string]any, total float64) (float64, 
 		"upstream_inference_completion_cost",
 		"upstream_inference_output_cost",
 	)
-	if !inputOK || !outputOK || input < 0 || output < 0 {
+	if !inputOK || !outputOK || !isFiniteCost(input) || !isFiniteCost(output) || input < 0 || output < 0 {
 		return 0, 0, false
 	}
 
@@ -319,6 +319,10 @@ func openRouterCreditCostSplit(rawData map[string]any, total float64) (float64, 
 		return 0, 0, false
 	}
 	return input, output, true
+}
+
+func isFiniteCost(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 func firstNestedFloat(data map[string]any, keys ...string) (float64, bool) {
