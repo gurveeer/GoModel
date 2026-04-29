@@ -1545,7 +1545,7 @@ type recalculatePricingRequest struct {
 	EndDate      string `json:"end_date,omitempty"`
 	UserPath     string `json:"user_path,omitempty"`
 	Selector     string `json:"selector,omitempty"`
-	Confirmation string `json:"confirmation"`
+	Confirmation string `json:"confirmation" binding:"required"`
 	Confirm      string `json:"confirm,omitempty"`
 }
 
