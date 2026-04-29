@@ -109,9 +109,20 @@ function ensureBearerAuthSecurityScheme() {
   };
 }
 
+function ensureRequiredProperty(schemaName, propertyName) {
+  const target = schema(schemaName);
+  if (!target.properties?.[propertyName]) {
+    throw new Error(`missing ${propertyName} property on schema: ${schemaName}`);
+  }
+  const required = new Set(target.required || []);
+  required.add(propertyName);
+  target.required = Array.from(required).sort();
+}
+
 spec.servers = parseServers(process.env.DOCS_API_SERVERS);
 ensureResponsesInputElementSchema();
 ensureBearerAuthSecurityScheme();
+ensureRequiredProperty("admin.recalculatePricingRequest", "confirmation");
 
 for (const name of [
   "core.ResponsesRequest",

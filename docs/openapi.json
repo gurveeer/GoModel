@@ -4674,9 +4674,6 @@
       },
       "admin.recalculatePricingRequest": {
         "type": "object",
-        "required": [
-          "confirmation"
-        ],
         "properties": {
           "confirm": {
             "type": "string"
@@ -4699,7 +4696,10 @@
           "user_path": {
             "type": "string"
           }
-        }
+        },
+        "required": [
+          "confirmation"
+        ]
       },
       "admin.resetBudgetRequest": {
         "type": "object",

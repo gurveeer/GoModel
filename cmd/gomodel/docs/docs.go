@@ -3210,9 +3210,6 @@ const docTemplate = `{
         },
         "admin.recalculatePricingRequest": {
             "type": "object",
-            "required": [
-                "confirmation"
-            ],
             "properties": {
                 "confirm": {
                     "type": "string"
