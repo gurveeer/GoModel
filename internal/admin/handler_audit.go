@@ -1,0 +1,205 @@
+package admin
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/labstack/echo/v5"
+
+	"gomodel/internal/auditlog"
+	"gomodel/internal/core"
+	"gomodel/internal/usage"
+)
+
+// @Param        search       query     string  false  "Search across request_id/requested_model/provider/method/path/error_type/error_message"
+// @Param        limit        query     int     false  "Page size (default 25, max 100)"
+// @Param        offset       query     int     false  "Offset for pagination"
+// @Success      200  {object}  auditLogListResponse
+// @Failure      400  {object}  core.GatewayError
+// @Failure      401  {object}  core.GatewayError
+// @Router       /admin/api/v1/audit/log [get]
+func (h *Handler) AuditLog(c *echo.Context) error {
+	if h.auditReader == nil {
+		return c.JSON(http.StatusOK, auditLogListResponse{
+			Entries: []auditLogEntryResponse{},
+		})
+	}
+
+	dateRange, err := parseDateRangeParams(c)
+	if err != nil {
+		return handleError(c, err)
+	}
+	userPath, err := normalizeUserPathQueryParam("user_path", c.QueryParam("user_path"))
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	requestedModel := c.QueryParam("requested_model")
+	if requestedModel == "" {
+		requestedModel = c.QueryParam("model")
+	}
+
+	params := auditlog.LogQueryParams{
+		QueryParams: auditlog.QueryParams{
+			StartDate: dateRange.StartDate,
+			EndDate:   dateRange.EndDate,
+		},
+		RequestedModel: requestedModel,
+		Provider:       c.QueryParam("provider"),
+		Method:         strings.ToUpper(c.QueryParam("method")),
+		Path:           c.QueryParam("path"),
+		UserPath:       userPath,
+		ErrorType:      c.QueryParam("error_type"),
+		Search:         c.QueryParam("search"),
+	}
+
+	if sc := c.QueryParam("status_code"); sc != "" {
+		parsed, err := strconv.Atoi(sc)
+		if err != nil {
+			return handleError(c, core.NewInvalidRequestError("invalid status_code, expected integer", nil))
+		}
+		params.StatusCode = &parsed
+	}
+
+	if stream := c.QueryParam("stream"); stream != "" {
+		parsed, err := strconv.ParseBool(stream)
+		if err != nil {
+			return handleError(c, core.NewInvalidRequestError("invalid stream value, expected true or false", nil))
+		}
+		params.Stream = &parsed
+	}
+
+	if l := c.QueryParam("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			params.Limit = parsed
+		}
+	}
+	if o := c.QueryParam("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			params.Offset = parsed
+		}
+	}
+
+	result, err := h.auditReader.GetLogs(c.Request().Context(), params)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	if result.Entries == nil {
+		result.Entries = []auditlog.LogEntry{}
+	}
+
+	response, err := h.auditLogResponse(c.Request().Context(), result)
+	if err != nil {
+		return handleError(c, err)
+	}
+	return c.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) auditLogResponse(ctx context.Context, result *auditlog.LogListResult) (*auditLogListResponse, error) {
+	if result == nil {
+		return &auditLogListResponse{Entries: []auditLogEntryResponse{}}, nil
+	}
+
+	response := &auditLogListResponse{
+		Entries: make([]auditLogEntryResponse, len(result.Entries)),
+		Total:   result.Total,
+		Limit:   result.Limit,
+		Offset:  result.Offset,
+	}
+	for i := range result.Entries {
+		response.Entries[i].LogEntry = result.Entries[i]
+	}
+
+	if h.usageReader == nil || len(result.Entries) == 0 {
+		return response, nil
+	}
+
+	requestIDs := make([]string, 0, len(result.Entries))
+	for _, entry := range result.Entries {
+		requestIDs = append(requestIDs, entry.RequestID)
+	}
+
+	entriesByRequestID, err := h.usageReader.GetUsageByRequestIDs(ctx, requestIDs)
+	if err != nil {
+		slog.Warn("failed to enrich audit log entries with usage", "error", err, "request_count", len(requestIDs))
+		return response, nil
+	}
+
+	summaries := usage.SummarizeUsageByRequestID(entriesByRequestID)
+	for i := range response.Entries {
+		requestID := response.Entries[i].RequestID
+		if summary, ok := summaries[requestID]; ok {
+			response.Entries[i].Usage = summary
+		}
+	}
+
+	return response, nil
+}
+
+// AuditConversation handles GET /admin/api/v1/audit/conversation
+//
+// @Summary      Get conversation thread around an audit log entry
+// @Tags         admin
+// @Produce      json
+// @Security     BearerAuth
+// @Param        log_id  query     string  true   "Anchor audit log entry ID"
+// @Param        limit   query     int     false  "Max entries in thread (default 40, max 200)"
+// @Success      200  {object}  auditlog.ConversationResult
+// @Failure      400  {object}  core.GatewayError
+// @Failure      401  {object}  core.GatewayError
+// @Router       /admin/api/v1/audit/conversation [get]
+func (h *Handler) AuditConversation(c *echo.Context) error {
+	if h.auditReader == nil {
+		return c.JSON(http.StatusOK, auditlog.ConversationResult{
+			AnchorID: c.QueryParam("log_id"),
+			Entries:  []auditlog.LogEntry{},
+		})
+	}
+
+	logID := strings.TrimSpace(c.QueryParam("log_id"))
+	if logID == "" {
+		return handleError(c, core.NewInvalidRequestError("log_id is required", nil))
+	}
+
+	limit := 40
+	if l := c.QueryParam("limit"); l != "" {
+		parsed, err := strconv.Atoi(l)
+		if err != nil {
+			return handleError(c, core.NewInvalidRequestError("invalid limit, expected integer", nil))
+		}
+		if parsed < 1 || parsed > 200 {
+			return handleError(c, core.NewInvalidRequestError("invalid limit parameter: limit must be between 1 and 200", nil))
+		}
+		limit = parsed
+	}
+
+	result, err := h.auditReader.GetConversation(c.Request().Context(), logID, limit)
+	if err != nil {
+		return handleError(c, err)
+	}
+	if result == nil {
+		result = &auditlog.ConversationResult{
+			AnchorID: logID,
+			Entries:  []auditlog.LogEntry{},
+		}
+	}
+	if result.Entries == nil {
+		result.Entries = []auditlog.LogEntry{}
+	}
+
+	return c.JSON(http.StatusOK, result)
+}
+
+// ListModels handles GET /admin/api/v1/models
+// Supports optional ?category= query param for filtering by model category.
+//
+// @Summary      List all registered models with provider info
+// @Tags         admin
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {array}  providers.ModelWithProvider
+// @Failure      401  {object}  core.GatewayError
