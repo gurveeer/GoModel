@@ -97,8 +97,21 @@ function ensureResponsesInputElementSchema() {
   };
 }
 
+function ensureBearerAuthSecurityScheme() {
+  const securitySchemes = spec.components?.securitySchemes;
+  if (!securitySchemes?.BearerAuth) {
+    throw new Error("missing OpenAPI security scheme: BearerAuth");
+  }
+  securitySchemes.BearerAuth = {
+    type: "http",
+    scheme: "bearer",
+    bearerFormat: "JWT",
+  };
+}
+
 spec.servers = parseServers(process.env.DOCS_API_SERVERS);
 ensureResponsesInputElementSchema();
+ensureBearerAuthSecurityScheme();
 
 for (const name of [
   "core.ResponsesRequest",
