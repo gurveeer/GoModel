@@ -58,7 +58,10 @@ func applyBudgetEnv(cfg *Config) error {
 		if !ok || !strings.HasPrefix(key, prefix) || strings.TrimSpace(value) == "" {
 			continue
 		}
-		path := budgetEnvPath(key[len(prefix):])
+		path, err := core.NormalizeUserPath(budgetEnvPath(key[len(prefix):]))
+		if err != nil {
+			return fmt.Errorf("invalid value for %s: %w", key, err)
+		}
 		limits, err := parseBudgetEnvLimits(value)
 		if err != nil {
 			return fmt.Errorf("invalid value for %s: %w", key, err)
@@ -70,9 +73,12 @@ func applyBudgetEnv(cfg *Config) error {
 			Path:   path,
 			Limits: limits,
 		}
+		// Compare against the canonical form so env entries replace YAML entries
+		// even when YAML uses non-canonical paths like "alice" or "/alice/".
 		replaced := cfg.Budgets.UserPaths[:0]
 		for _, existing := range cfg.Budgets.UserPaths {
-			if existing.Path != entry.Path {
+			existingNorm, normErr := core.NormalizeUserPath(existing.Path)
+			if normErr != nil || existingNorm != entry.Path {
 				replaced = append(replaced, existing)
 			}
 		}
