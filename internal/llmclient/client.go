@@ -366,9 +366,11 @@ func (c *Client) DoRaw(ctx context.Context, req Request) (*Response, error) {
 			lastStatusCode = extractStatusCode(err)
 			// Caller-side build errors (validation, body conflicts, marshal
 			// failures) will repeat deterministically and never reached the
-			// upstream — short-circuit without retrying or charging the breaker.
+			// upstream — short-circuit without retrying and skip the breaker
+			// entirely (a 400 with cbErr=nil would otherwise be recorded as
+			// a success by recordCircuitBreakerCompletion).
 			if isLocalRequestBuildError(err) {
-				c.completeScope(scope, lastStatusCode, err, nil)
+				c.finishRequest(scope, lastStatusCode, err)
 				return nil, err
 			}
 			lastErrFromTransport = true
@@ -429,13 +431,13 @@ func (c *Client) DoStream(ctx context.Context, req Request) (io.ReadCloser, erro
 	resp, err := c.doHTTPRequest(scope.ctx, req)
 	if err != nil {
 		statusCode := extractStatusCode(err)
-		// Caller-side build errors must not charge the breaker: the upstream
-		// was never contacted.
-		var cbErr error
-		if !isLocalRequestBuildError(err) {
-			cbErr = err
+		// Caller-side build errors never reached the upstream — skip the
+		// breaker entirely so neither RecordFailure nor RecordSuccess fires.
+		if isLocalRequestBuildError(err) {
+			c.finishRequest(scope, statusCode, err)
+			return nil, err
 		}
-		c.completeScope(scope, statusCode, err, cbErr)
+		c.completeScope(scope, statusCode, err, err)
 		return nil, err
 	}
 
@@ -507,9 +509,11 @@ func (c *Client) DoPassthrough(ctx context.Context, req Request) (*http.Response
 		resp, err := c.doHTTPRequest(ctx, req)
 		if err != nil {
 			statusCode := extractStatusCode(err)
-			// Caller-side build errors will repeat and never hit the upstream.
+			// Caller-side build errors will repeat and never hit the upstream;
+			// skip the breaker entirely (cbErr=nil would otherwise record a
+			// spurious success for a 400-class status).
 			if isLocalRequestBuildError(err) {
-				c.completeScope(scope, statusCode, err, nil)
+				c.finishRequest(scope, statusCode, err)
 				return nil, err
 			}
 			if scope.halfOpenProbe || isClientTimeoutGatewayError(err) || attempt == maxAttempts-1 {

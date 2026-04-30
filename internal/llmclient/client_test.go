@@ -718,10 +718,15 @@ func TestClient_DoStream_Error(t *testing.T) {
 // charging the circuit breaker — the upstream was never contacted, so the
 // retry would just repeat the validation failure and the breaker should not
 // blame the provider.
+//
+// The closed-state subtests verify that build errors don't trip a healthy
+// breaker. The half-open subtests verify that build errors don't advance the
+// breaker state machine in either direction (no failure recorded → no
+// transition back to open; no success counted → no progress toward closed).
 func TestClient_BuildErrorDoesNotRetryOrChargeBreaker(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
+	entries := []struct {
 		name string
 		call func(t *testing.T, client *Client) error
 	}{
@@ -748,43 +753,78 @@ func TestClient_BuildErrorDoesNotRetryOrChargeBreaker(t *testing.T) {
 		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var attempts int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				atomic.AddInt32(&attempts, 1)
-			}))
-			defer server.Close()
+	states := []struct {
+		name      string
+		preSeed   func(cb *circuitBreaker)
+		wantState string
+	}{
+		{
+			name:      "closed",
+			preSeed:   func(*circuitBreaker) {},
+			wantState: "closed",
+		},
+		{
+			// Half-open with the probe slot available: the breaker grants the
+			// probe, so the build error fires through the normal request path.
+			// We then assert the breaker stayed half-open — the build error
+			// must not record a success (which would advance toward closed)
+			// nor a failure (which would reopen the breaker).
+			name: "half_open",
+			preSeed: func(cb *circuitBreaker) {
+				cb.mu.Lock()
+				defer cb.mu.Unlock()
+				cb.state = circuitHalfOpen
+				cb.failures = cb.failureThreshold
+				cb.successes = 0
+				cb.halfOpenAllowed = true
+				cb.lastFailure = time.Now().Add(-cb.timeout - time.Millisecond)
+			},
+			wantState: "half-open",
+		},
+	}
 
-			config := DefaultConfig("test", server.URL)
-			config.Retry.MaxRetries = 3
-			config.Retry.InitialBackoff = time.Millisecond
-			config.Retry.JitterFactor = 0
-			config.CircuitBreaker = goconfig.CircuitBreakerConfig{
-				FailureThreshold: 1,
-				SuccessThreshold: 2,
-				Timeout:          time.Second,
-			}
-			client := New(config, nil)
+	for _, st := range states {
+		st := st
+		for _, e := range entries {
+			e := e
+			t.Run(st.name+"/"+e.name, func(t *testing.T) {
+				var attempts int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					atomic.AddInt32(&attempts, 1)
+				}))
+				defer server.Close()
 
-			err := tc.call(t, client)
-			if err == nil {
-				t.Fatal("expected error, got nil")
-			}
-			var gwErr *core.GatewayError
-			if !errors.As(err, &gwErr) {
-				t.Fatalf("expected *core.GatewayError, got %T: %v", err, err)
-			}
-			if gwErr.Type != core.ErrorTypeInvalidRequest {
-				t.Errorf("error type = %s, want %s", gwErr.Type, core.ErrorTypeInvalidRequest)
-			}
-			if got := atomic.LoadInt32(&attempts); got != 0 {
-				t.Errorf("server received %d attempts; want 0 (build errors must not be retried)", got)
-			}
-			if state := client.circuitBreaker.State(); state != "closed" {
-				t.Errorf("breaker state = %q; want closed (build errors must not charge the breaker)", state)
-			}
-		})
+				config := DefaultConfig("test", server.URL)
+				config.Retry.MaxRetries = 3
+				config.Retry.InitialBackoff = time.Millisecond
+				config.Retry.JitterFactor = 0
+				config.CircuitBreaker = goconfig.CircuitBreakerConfig{
+					FailureThreshold: 1,
+					SuccessThreshold: 2,
+					Timeout:          time.Second,
+				}
+				client := New(config, nil)
+				st.preSeed(client.circuitBreaker)
+
+				err := e.call(t, client)
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				var gwErr *core.GatewayError
+				if !errors.As(err, &gwErr) {
+					t.Fatalf("expected *core.GatewayError, got %T: %v", err, err)
+				}
+				if gwErr.Type != core.ErrorTypeInvalidRequest {
+					t.Errorf("error type = %s, want %s", gwErr.Type, core.ErrorTypeInvalidRequest)
+				}
+				if got := atomic.LoadInt32(&attempts); got != 0 {
+					t.Errorf("server received %d attempts; want 0 (build errors must not be retried)", got)
+				}
+				if state := client.circuitBreaker.State(); state != st.wantState {
+					t.Errorf("breaker state = %q; want %q (build errors must not advance the breaker)", state, st.wantState)
+				}
+			})
+		}
 	}
 }
 
