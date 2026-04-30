@@ -39,12 +39,9 @@ import (
 // @Failure      401  {object}  core.GatewayError
 // @Router       /admin/api/v1/audit/log [get]
 func (h *Handler) AuditLog(c *echo.Context) error {
-	if h.auditReader == nil {
-		return c.JSON(http.StatusOK, auditLogListResponse{
-			Entries: []auditLogEntryResponse{},
-		})
-	}
-
+	// Validate request shape before the disabled-reader fast path so callers
+	// always get a 400 for malformed inputs, regardless of whether audit
+	// logging is configured.
 	dateRange, err := parseDateRangeParams(c)
 	if err != nil {
 		return handleError(c, err)
@@ -104,11 +101,19 @@ func (h *Handler) AuditLog(c *echo.Context) error {
 		params.Offset = parsed
 	}
 
+	if h.auditReader == nil {
+		return c.JSON(http.StatusOK, auditLogListResponse{
+			Entries: []auditLogEntryResponse{},
+		})
+	}
+
 	result, err := h.auditReader.GetLogs(c.Request().Context(), params)
 	if err != nil {
 		return handleError(c, err)
 	}
-
+	if result == nil {
+		result = &auditlog.LogListResult{Entries: []auditlog.LogEntry{}}
+	}
 	if result.Entries == nil {
 		result.Entries = []auditlog.LogEntry{}
 	}
@@ -174,13 +179,9 @@ func (h *Handler) auditLogResponse(ctx context.Context, result *auditlog.LogList
 // @Failure      401  {object}  core.GatewayError
 // @Router       /admin/api/v1/audit/conversation [get]
 func (h *Handler) AuditConversation(c *echo.Context) error {
-	if h.auditReader == nil {
-		return c.JSON(http.StatusOK, auditlog.ConversationResult{
-			AnchorID: c.QueryParam("log_id"),
-			Entries:  []auditlog.LogEntry{},
-		})
-	}
-
+	// Validate request shape before the disabled-reader fast path so callers
+	// always get a 400 for missing/invalid params, regardless of whether
+	// audit logging is configured.
 	logID := strings.TrimSpace(c.QueryParam("log_id"))
 	if logID == "" {
 		return handleError(c, core.NewInvalidRequestError("log_id is required", nil))
@@ -196,6 +197,13 @@ func (h *Handler) AuditConversation(c *echo.Context) error {
 			return handleError(c, core.NewInvalidRequestError("invalid limit parameter: limit must be between 1 and 200", nil))
 		}
 		limit = parsed
+	}
+
+	if h.auditReader == nil {
+		return c.JSON(http.StatusOK, auditlog.ConversationResult{
+			AnchorID: logID,
+			Entries:  []auditlog.LogEntry{},
+		})
 	}
 
 	result, err := h.auditReader.GetConversation(c.Request().Context(), logID, limit)

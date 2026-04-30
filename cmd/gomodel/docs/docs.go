@@ -641,15 +641,29 @@ const docTemplate = `{
                 "tags": [
                     "admin"
                 ],
-                "summary": "List all registered models with provider info",
+                "summary": "List all registered models with provider info and access state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by model category",
+                        "name": "category",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/providers.ModelWithProvider"
+                                "$ref": "#/definitions/admin.modelInventoryResponse"
                             }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/core.GatewayError"
                         }
                     },
                     "401": {
@@ -3241,6 +3255,49 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.modelAccessResponse": {
+            "type": "object",
+            "properties": {
+                "default_enabled": {
+                    "type": "boolean"
+                },
+                "effective_enabled": {
+                    "type": "boolean"
+                },
+                "override": {
+                    "$ref": "#/definitions/modeloverrides.Override"
+                },
+                "selector": {
+                    "type": "string"
+                },
+                "user_paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "admin.modelInventoryResponse": {
+            "type": "object",
+            "properties": {
+                "access": {
+                    "$ref": "#/definitions/admin.modelAccessResponse"
+                },
+                "model": {
+                    "$ref": "#/definitions/core.Model"
+                },
+                "provider_name": {
+                    "type": "string"
+                },
+                "provider_type": {
+                    "type": "string"
+                },
+                "selector": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.recalculatePricingRequest": {
             "type": "object",
             "properties": {
@@ -4802,6 +4859,32 @@ const docTemplate = `{
                 }
             }
         },
+        "modeloverrides.Override": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "provider_name": {
+                    "type": "string"
+                },
+                "selector": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "providers.CategoryCount": {
             "type": "object",
             "properties": {
@@ -4812,23 +4895,6 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "display_name": {
-                    "type": "string"
-                }
-            }
-        },
-        "providers.ModelWithProvider": {
-            "type": "object",
-            "properties": {
-                "model": {
-                    "$ref": "#/definitions/core.Model"
-                },
-                "provider_name": {
-                    "type": "string"
-                },
-                "provider_type": {
-                    "type": "string"
-                },
-                "selector": {
                     "type": "string"
                 }
             }

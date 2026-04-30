@@ -2,6 +2,7 @@ package guardrails
 
 import (
 	"encoding/json"
+	"errors"
 
 	"gomodel/internal/core"
 )
@@ -14,8 +15,13 @@ func rewriteGuardedChatBatchBody(originalBody json.RawMessage, original *core.Ch
 	if err == nil {
 		return body, nil
 	}
-	// Fallback: serialize the modified request directly when raw-body
-	// preservation fails (e.g., when the original body is malformed JSON).
+	// Validation errors (e.g. guardrails tried to insert/reorder messages)
+	// must propagate — falling back to Marshal(modified) would silently
+	// publish the invalid rewrite. Only fall back for raw-body preservation
+	// failures (malformed original JSON, etc.).
+	if gwErr, ok := errors.AsType[*core.GatewayError](err); ok && gwErr.Type == core.ErrorTypeInvalidRequest {
+		return nil, err
+	}
 	return json.Marshal(modified)
 }
 

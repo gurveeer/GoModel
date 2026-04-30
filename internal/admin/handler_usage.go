@@ -14,6 +14,10 @@ import (
 	"gomodel/internal/usage"
 )
 
+// maxUsageLogLimit caps the page size accepted by the usage log endpoint and
+// matches the value documented in the @Param limit annotation below.
+const maxUsageLogLimit = 200
+
 // UsageSummary handles GET /admin/api/v1/usage/summary
 //
 // @Summary      Get usage summary
@@ -175,14 +179,21 @@ func (h *Handler) UsageLog(c *echo.Context) error {
 	}
 
 	if l := c.QueryParam("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
-			params.Limit = parsed
+		parsed, err := strconv.Atoi(l)
+		if err != nil || parsed <= 0 {
+			return handleError(c, core.NewInvalidRequestError("invalid limit, expected positive integer", nil))
 		}
+		if parsed > maxUsageLogLimit {
+			return handleError(c, core.NewInvalidRequestError("invalid limit parameter: limit must be between 1 and 200", nil))
+		}
+		params.Limit = parsed
 	}
 	if o := c.QueryParam("offset"); o != "" {
-		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
-			params.Offset = parsed
+		parsed, err := strconv.Atoi(o)
+		if err != nil || parsed < 0 {
+			return handleError(c, core.NewInvalidRequestError("invalid offset, expected non-negative integer", nil))
 		}
+		params.Offset = parsed
 	}
 
 	result, err := h.usageReader.GetUsageLog(c.Request().Context(), params)

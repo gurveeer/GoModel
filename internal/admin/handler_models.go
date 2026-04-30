@@ -28,11 +28,13 @@ type modelInventoryResponse struct {
 // ListModels handles GET /admin/api/v1/models
 // Supports optional ?category= query param for filtering by model category.
 //
-// @Summary      List all registered models with provider info
+// @Summary      List all registered models with provider info and access state
 // @Tags         admin
 // @Produce      json
 // @Security     BearerAuth
-// @Success      200  {array}  providers.ModelWithProvider
+// @Param        category    query     string  false  "Filter by model category"
+// @Success      200  {array}  modelInventoryResponse
+// @Failure      400  {object}  core.GatewayError
 // @Failure      401  {object}  core.GatewayError
 // @Router       /admin/api/v1/models [get]
 func (h *Handler) ListModels(c *echo.Context) error {
@@ -40,7 +42,7 @@ func (h *Handler) ListModels(c *echo.Context) error {
 		return c.JSON(http.StatusOK, []modelInventoryResponse{})
 	}
 
-	cat := core.ModelCategory(c.QueryParam("category"))
+	cat := core.ModelCategory(strings.TrimSpace(c.QueryParam("category")))
 	if cat != "" && cat != core.CategoryAll {
 		if !isValidCategory(cat) {
 			return handleError(c, core.NewInvalidRequestError("invalid category: "+string(cat), nil))

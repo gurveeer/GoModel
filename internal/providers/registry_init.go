@@ -365,6 +365,13 @@ func (r *ModelRegistry) IsInitialized() bool {
 // for the goroutine to exit before returning, so callers should expect it to
 // block during shutdown until any in-flight refresh work unwinds.
 func (r *ModelRegistry) StartBackgroundRefresh(interval time.Duration, modelListURL string) func() {
+	if interval <= 0 {
+		// time.NewTicker panics on non-positive durations and a refresh loop
+		// with a zero interval would be meaningless. Skip the goroutine and
+		// hand back a no-op stop so callers can still defer it safely.
+		slog.Debug("model registry background refresh disabled", "interval", interval)
+		return func() {}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	var stopOnce sync.Once

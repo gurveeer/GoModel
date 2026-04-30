@@ -785,7 +785,17 @@
         "tags": [
           "admin"
         ],
-        "summary": "List all registered models with provider info",
+        "summary": "List all registered models with provider info and access state",
+        "parameters": [
+          {
+            "description": "Filter by model category",
+            "name": "category",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",
@@ -794,8 +804,18 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/providers.ModelWithProvider"
+                    "$ref": "#/components/schemas/admin.modelInventoryResponse"
                   }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/core.GatewayError"
                 }
               }
             }
@@ -4710,6 +4730,49 @@
           }
         }
       },
+      "admin.modelAccessResponse": {
+        "type": "object",
+        "properties": {
+          "default_enabled": {
+            "type": "boolean"
+          },
+          "effective_enabled": {
+            "type": "boolean"
+          },
+          "override": {
+            "$ref": "#/components/schemas/modeloverrides.Override"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "user_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "admin.modelInventoryResponse": {
+        "type": "object",
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/admin.modelAccessResponse"
+          },
+          "model": {
+            "$ref": "#/components/schemas/core.Model"
+          },
+          "provider_name": {
+            "type": "string"
+          },
+          "provider_type": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          }
+        }
+      },
       "admin.recalculatePricingRequest": {
         "type": "object",
         "properties": {
@@ -6307,6 +6370,32 @@
           }
         }
       },
+      "modeloverrides.Override": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider_name": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "user_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "providers.CategoryCount": {
         "type": "object",
         "properties": {
@@ -6317,23 +6406,6 @@
             "type": "integer"
           },
           "display_name": {
-            "type": "string"
-          }
-        }
-      },
-      "providers.ModelWithProvider": {
-        "type": "object",
-        "properties": {
-          "model": {
-            "$ref": "#/components/schemas/core.Model"
-          },
-          "provider_name": {
-            "type": "string"
-          },
-          "provider_type": {
-            "type": "string"
-          },
-          "selector": {
             "type": "string"
           }
         }
