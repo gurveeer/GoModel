@@ -63,10 +63,6 @@ func (h *Handler) buildProviderStatusResponse() providerStatusResponse {
 	}
 
 	resp.Summary.OverallStatus = overallProviderStatus(resp.Summary)
-
-	if resp.Providers == nil {
-		resp.Providers = []providerStatusItemResponse{}
-	}
 	return resp
 }
 
