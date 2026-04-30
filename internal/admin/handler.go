@@ -501,13 +501,3 @@ func requestIDFromAdminContextOrHeader(req *http.Request) string {
 	}
 	return strings.TrimSpace(req.Header.Get("X-Request-ID"))
 }
-
-// @Param        stream       query     bool    false  "Filter by stream mode (true/false)"
-// @Router       /admin/api/v1/models [get]
-// @Router       /admin/api/v1/budgets [get]
-
-// ListModelOverrides handles GET /admin/api/v1/model-overrides.
-// ListAuthKeys handles GET /admin/api/v1/auth-keys
-// ListAliases handles GET /admin/api/v1/aliases
-// ListGuardrailTypes handles GET /admin/api/v1/guardrails/types
-// ListWorkflows handles GET /admin/api/v1/workflows

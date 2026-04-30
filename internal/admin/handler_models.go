@@ -25,6 +25,16 @@ type modelInventoryResponse struct {
 	Access modelAccessResponse `json:"access"`
 }
 
+// ListModels handles GET /admin/api/v1/models
+// Supports optional ?category= query param for filtering by model category.
+//
+// @Summary      List all registered models with provider info
+// @Tags         admin
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {array}  providers.ModelWithProvider
+// @Failure      401  {object}  core.GatewayError
+// @Router       /admin/api/v1/models [get]
 func (h *Handler) ListModels(c *echo.Context) error {
 	if h.registry == nil {
 		return c.JSON(http.StatusOK, []modelInventoryResponse{})
@@ -118,12 +128,3 @@ func (h *Handler) ListCategories(c *echo.Context) error {
 func (h *Handler) DashboardConfig(c *echo.Context) error {
 	return c.JSON(http.StatusOK, cloneDashboardRuntimeConfig(h.runtimeConfig))
 }
-
-// ListBudgets handles GET /admin/api/v1/budgets.
-// @Summary      List budgets with current status
-// @Tags         admin
-// @Produce      json
-// @Security     BearerAuth
-// @Success      200  {object}  budgetListResponse
-// @Failure      401  {object}  core.GatewayError
-// @Failure      503  {object}  core.GatewayError

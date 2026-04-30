@@ -15,6 +15,16 @@ import (
 	"gomodel/internal/core"
 )
 
+// ListBudgets handles GET /admin/api/v1/budgets.
+//
+// @Summary      List budgets with current status
+// @Tags         admin
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  budgetListResponse
+// @Failure      401  {object}  core.GatewayError
+// @Failure      503  {object}  core.GatewayError
+// @Router       /admin/api/v1/budgets [get]
 func (h *Handler) ListBudgets(c *echo.Context) error {
 	if h.budgets == nil {
 		return handleError(c, featureUnavailableError("budgets feature is unavailable"))
@@ -207,7 +217,6 @@ func (h *Handler) ResetBudgets(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resetBudgetsResponse{Status: "ok"})
 }
 
-// ProviderStatus handles GET /admin/api/v1/providers/status
 type budgetListResponse struct {
 	Budgets    []budgetStatusResponse `json:"budgets"`
 	ServerTime time.Time              `json:"server_time"`

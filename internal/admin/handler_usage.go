@@ -295,22 +295,6 @@ func (h *Handler) CacheOverview(c *echo.Context) error {
 	return c.JSON(http.StatusOK, overview)
 }
 
-// AuditLog handles GET /admin/api/v1/audit/log
-//
-// @Summary      Get paginated audit log entries
-// @Tags         admin
-// @Produce      json
-// @Security     BearerAuth
-// @Param        days         query     int     false  "Number of days (default 30)"
-// @Param        start_date   query     string  false  "Start date (YYYY-MM-DD)"
-// @Param        end_date     query     string  false  "End date (YYYY-MM-DD)"
-// @Param        requested_model  query     string  false  "Filter by requested model selector"
-// @Param        provider     query     string  false  "Filter by provider name or provider type"
-// @Param        method       query     string  false  "Filter by HTTP method"
-// @Param        path         query     string  false  "Filter by request path"
-// @Param        user_path    query     string  false  "Filter by tracked user path subtree"
-// @Param        error_type   query     string  false  "Filter by error type"
-// @Param        status_code  query     int     false  "Filter by status code"
 type recalculatePricingRequest struct {
 	Days         int    `json:"days,omitempty"`
 	StartDate    string `json:"start_date,omitempty"`
