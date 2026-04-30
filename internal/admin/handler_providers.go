@@ -39,6 +39,45 @@ func (h *Handler) RefreshRuntime(c *echo.Context) error {
 }
 
 func (h *Handler) buildProviderStatusResponse() providerStatusResponse {
+	configuredByName, runtimeByName, names := h.collectProviderStatusInputs()
+
+	resp := providerStatusResponse{
+		Summary: providerStatusSummaryResponse{
+			OverallStatus: "degraded",
+		},
+		Providers: make([]providerStatusItemResponse, 0, len(names)),
+	}
+
+	for _, name := range names {
+		item := buildProviderStatusItem(name, configuredByName[name], runtimeByName[name])
+		resp.Providers = append(resp.Providers, item)
+		resp.Summary.Total++
+		switch item.Status {
+		case "healthy":
+			resp.Summary.Healthy++
+		case "unhealthy":
+			resp.Summary.Unhealthy++
+		default:
+			resp.Summary.Degraded++
+		}
+	}
+
+	resp.Summary.OverallStatus = overallProviderStatus(resp.Summary)
+
+	if resp.Providers == nil {
+		resp.Providers = []providerStatusItemResponse{}
+	}
+	return resp
+}
+
+// collectProviderStatusInputs merges the configured-provider snapshot with the
+// registry's runtime snapshots and returns lookups keyed by trimmed name plus
+// a deterministically sorted list of all known names.
+func (h *Handler) collectProviderStatusInputs() (
+	map[string]providers.SanitizedProviderConfig,
+	map[string]providers.ProviderRuntimeSnapshot,
+	[]string,
+) {
 	configured := cloneConfiguredProviders(h.configuredProviders)
 	configuredByName := make(map[string]providers.SanitizedProviderConfig, len(configured))
 	nameSet := make(map[string]struct{}, len(configured))
@@ -68,67 +107,50 @@ func (h *Handler) buildProviderStatusResponse() providerStatusResponse {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	return configuredByName, runtimeByName, names
+}
 
-	resp := providerStatusResponse{
-		Summary: providerStatusSummaryResponse{
-			OverallStatus: "degraded",
-		},
-		Providers: make([]providerStatusItemResponse, 0, len(names)),
+// buildProviderStatusItem reconciles cfg/runtime gaps for a single provider
+// (either side may be zero-valued when only one source knows the name) and
+// produces the response row.
+func buildProviderStatusItem(name string, cfg providers.SanitizedProviderConfig, runtime providers.ProviderRuntimeSnapshot) providerStatusItemResponse {
+	if strings.TrimSpace(cfg.Name) == "" {
+		cfg = providers.SanitizedProviderConfig{Name: name, Type: strings.TrimSpace(runtime.Type)}
+	}
+	if strings.TrimSpace(runtime.Name) == "" {
+		runtime = providers.ProviderRuntimeSnapshot{Name: name, Type: strings.TrimSpace(cfg.Type)}
+	}
+	if strings.TrimSpace(cfg.Type) == "" {
+		cfg.Type = strings.TrimSpace(runtime.Type)
+	}
+	if strings.TrimSpace(runtime.Type) == "" {
+		runtime.Type = strings.TrimSpace(cfg.Type)
 	}
 
-	for _, name := range names {
-		cfg, hasConfig := configuredByName[name]
-		runtime, hasRuntime := runtimeByName[name]
-		if !hasConfig {
-			cfg = providers.SanitizedProviderConfig{Name: name, Type: strings.TrimSpace(runtime.Type)}
-		}
-		if !hasRuntime {
-			runtime = providers.ProviderRuntimeSnapshot{Name: name, Type: strings.TrimSpace(cfg.Type)}
-		}
-		if strings.TrimSpace(cfg.Type) == "" {
-			cfg.Type = strings.TrimSpace(runtime.Type)
-		}
-		if strings.TrimSpace(runtime.Type) == "" {
-			runtime.Type = strings.TrimSpace(cfg.Type)
-		}
-
-		status, label, reason, lastError := classifyProviderStatus(cfg, runtime)
-		resp.Providers = append(resp.Providers, providerStatusItemResponse{
-			Name:         name,
-			Type:         strings.TrimSpace(cfg.Type),
-			Status:       status,
-			StatusLabel:  label,
-			StatusReason: reason,
-			LastError:    lastError,
-			Config:       cfg,
-			Runtime:      runtime,
-		})
-		resp.Summary.Total++
-		switch status {
-		case "healthy":
-			resp.Summary.Healthy++
-		case "unhealthy":
-			resp.Summary.Unhealthy++
-		default:
-			resp.Summary.Degraded++
-		}
+	status, label, reason, lastError := classifyProviderStatus(cfg, runtime)
+	return providerStatusItemResponse{
+		Name:         name,
+		Type:         strings.TrimSpace(cfg.Type),
+		Status:       status,
+		StatusLabel:  label,
+		StatusReason: reason,
+		LastError:    lastError,
+		Config:       cfg,
+		Runtime:      runtime,
 	}
+}
 
+func overallProviderStatus(summary providerStatusSummaryResponse) string {
 	switch {
-	case resp.Summary.Total == 0:
-		resp.Summary.OverallStatus = "degraded"
-	case resp.Summary.Healthy == resp.Summary.Total:
-		resp.Summary.OverallStatus = "healthy"
-	case resp.Summary.Unhealthy == resp.Summary.Total:
-		resp.Summary.OverallStatus = "unhealthy"
+	case summary.Total == 0:
+		return "degraded"
+	case summary.Healthy == summary.Total:
+		return "healthy"
+	case summary.Unhealthy == summary.Total:
+		return "unhealthy"
 	default:
-		resp.Summary.OverallStatus = "degraded"
+		return "degraded"
 	}
-
-	if resp.Providers == nil {
-		resp.Providers = []providerStatusItemResponse{}
-	}
-	return resp
 }
 
 func classifyProviderStatus(cfg providers.SanitizedProviderConfig, runtime providers.ProviderRuntimeSnapshot) (status, label, reason, lastError string) {
