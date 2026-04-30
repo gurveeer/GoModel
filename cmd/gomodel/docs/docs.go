@@ -633,6 +633,39 @@ const docTemplate = `{
                 ]
             }
         },
+        "/admin/api/v1/models": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List all registered models with provider info",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/providers.ModelWithProvider"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/core.GatewayError"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
         "/admin/api/v1/models/categories": {
             "get": {
                 "produces": [
@@ -4779,6 +4812,23 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "display_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "providers.ModelWithProvider": {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "$ref": "#/definitions/core.Model"
+                },
+                "provider_name": {
+                    "type": "string"
+                },
+                "provider_type": {
+                    "type": "string"
+                },
+                "selector": {
                     "type": "string"
                 }
             }
