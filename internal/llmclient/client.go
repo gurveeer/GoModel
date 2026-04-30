@@ -364,6 +364,13 @@ func (c *Client) DoRaw(ctx context.Context, req Request) (*Response, error) {
 		if err != nil {
 			lastErr = err
 			lastStatusCode = extractStatusCode(err)
+			// Caller-side build errors (validation, body conflicts, marshal
+			// failures) will repeat deterministically and never reached the
+			// upstream — short-circuit without retrying or charging the breaker.
+			if isLocalRequestBuildError(err) {
+				c.completeScope(scope, lastStatusCode, err, nil)
+				return nil, err
+			}
 			lastErrFromTransport = true
 			// Client-side timeouts are already the caller's latency budget. Do
 			// not retry them, or the logical request can outlive HTTP_TIMEOUT.
@@ -422,7 +429,13 @@ func (c *Client) DoStream(ctx context.Context, req Request) (io.ReadCloser, erro
 	resp, err := c.doHTTPRequest(scope.ctx, req)
 	if err != nil {
 		statusCode := extractStatusCode(err)
-		c.completeScope(scope, statusCode, err, err)
+		// Caller-side build errors must not charge the breaker: the upstream
+		// was never contacted.
+		var cbErr error
+		if !isLocalRequestBuildError(err) {
+			cbErr = err
+		}
+		c.completeScope(scope, statusCode, err, cbErr)
 		return nil, err
 	}
 
@@ -494,6 +507,11 @@ func (c *Client) DoPassthrough(ctx context.Context, req Request) (*http.Response
 		resp, err := c.doHTTPRequest(ctx, req)
 		if err != nil {
 			statusCode := extractStatusCode(err)
+			// Caller-side build errors will repeat and never hit the upstream.
+			if isLocalRequestBuildError(err) {
+				c.completeScope(scope, statusCode, err, nil)
+				return nil, err
+			}
 			if scope.halfOpenProbe || isClientTimeoutGatewayError(err) || attempt == maxAttempts-1 {
 				c.completeScope(scope, statusCode, err, err)
 				return nil, err
@@ -713,6 +731,28 @@ func isTimeoutError(err error) bool {
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "client.timeout exceeded") ||
 		strings.Contains(message, "timeout awaiting response headers")
+}
+
+// isLocalRequestBuildError reports whether err originated from buildRequest
+// (e.g. an empty endpoint, an invalid HTTP method, mutually-exclusive bodies,
+// or a marshal failure). Such errors are caller-side: they will repeat
+// deterministically on retry and must not be charged to the circuit breaker
+// because the upstream provider was never contacted.
+//
+// buildRequest is the only producer of *core.GatewayError with type
+// ErrorTypeInvalidRequest along the doRequest/doHTTPRequest path — the other
+// transport-layer wrappers all use NewProviderError. ParseProviderError runs
+// only on a returned response body, so an InvalidRequest seen in the
+// transport-error branch can only have come from buildRequest.
+func isLocalRequestBuildError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var gatewayErr *core.GatewayError
+	if !errors.As(err, &gatewayErr) || gatewayErr == nil {
+		return false
+	}
+	return gatewayErr.Type == core.ErrorTypeInvalidRequest
 }
 
 func isClientTimeoutGatewayError(err error) bool {

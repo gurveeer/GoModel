@@ -712,6 +712,82 @@ func TestClient_DoStream_Error(t *testing.T) {
 	}
 }
 
+// TestClient_BuildErrorDoesNotRetryOrChargeBreaker verifies that caller-side
+// request-construction failures (an invalid HTTP method, in this case)
+// short-circuit out of every Do* entry point without retrying and without
+// charging the circuit breaker — the upstream was never contacted, so the
+// retry would just repeat the validation failure and the breaker should not
+// blame the provider.
+func TestClient_BuildErrorDoesNotRetryOrChargeBreaker(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		call func(t *testing.T, client *Client) error
+	}{
+		{
+			name: "DoRaw",
+			call: func(t *testing.T, client *Client) error {
+				_, err := client.DoRaw(context.Background(), Request{Method: "INVALID", Endpoint: "/test"})
+				return err
+			},
+		},
+		{
+			name: "DoStream",
+			call: func(t *testing.T, client *Client) error {
+				_, err := client.DoStream(context.Background(), Request{Method: "INVALID", Endpoint: "/test"})
+				return err
+			},
+		},
+		{
+			name: "DoPassthrough",
+			call: func(t *testing.T, client *Client) error {
+				_, err := client.DoPassthrough(context.Background(), Request{Method: "INVALID", Endpoint: "/test"})
+				return err
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var attempts int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				atomic.AddInt32(&attempts, 1)
+			}))
+			defer server.Close()
+
+			config := DefaultConfig("test", server.URL)
+			config.Retry.MaxRetries = 3
+			config.Retry.InitialBackoff = time.Millisecond
+			config.Retry.JitterFactor = 0
+			config.CircuitBreaker = goconfig.CircuitBreakerConfig{
+				FailureThreshold: 1,
+				SuccessThreshold: 2,
+				Timeout:          time.Second,
+			}
+			client := New(config, nil)
+
+			err := tc.call(t, client)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			var gwErr *core.GatewayError
+			if !errors.As(err, &gwErr) {
+				t.Fatalf("expected *core.GatewayError, got %T: %v", err, err)
+			}
+			if gwErr.Type != core.ErrorTypeInvalidRequest {
+				t.Errorf("error type = %s, want %s", gwErr.Type, core.ErrorTypeInvalidRequest)
+			}
+			if got := atomic.LoadInt32(&attempts); got != 0 {
+				t.Errorf("server received %d attempts; want 0 (build errors must not be retried)", got)
+			}
+			if state := client.circuitBreaker.State(); state != "closed" {
+				t.Errorf("breaker state = %q; want closed (build errors must not charge the breaker)", state)
+			}
+		})
+	}
+}
+
 // TestRequest_Validation tests validation of Request fields
 func TestRequest_Validation(t *testing.T) {
 	config := DefaultConfig("test", "http://localhost")
