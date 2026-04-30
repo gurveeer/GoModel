@@ -224,6 +224,35 @@ func (c *Client) finishRequest(scope requestScope, statusCode int, err error) {
 	})
 }
 
+// completeScope is the standard terminal step for a request that has passed
+// beginRequest. It records the circuit-breaker outcome (using cbErr to decide
+// whether the failure was transport-level) and emits the metrics observation.
+// Use this whenever a code path returns from one of the public Do* methods.
+func (c *Client) completeScope(scope requestScope, statusCode int, err, cbErr error) {
+	c.recordCircuitBreakerCompletion(statusCode, cbErr)
+	c.finishRequest(scope, statusCode, err)
+}
+
+// failAfterRetries handles the "exhausted retries with no captured error"
+// fallback shared by the retrying entry points (DoRaw, DoPassthrough). The
+// returned error is also reported through the scope.
+func (c *Client) failAfterRetries(scope requestScope) error {
+	err := core.NewProviderError(c.config.ProviderName, http.StatusBadGateway, "request failed after retries", nil)
+	c.completeScope(scope, http.StatusBadGateway, err, err)
+	return err
+}
+
+// waitForRetryAttempt sleeps for the per-attempt backoff (a no-op for
+// attempt 0) and finalises the scope if the context cancels mid-wait. The
+// caller should return early when this returns a non-nil error.
+func (c *Client) waitForRetryAttempt(ctx context.Context, scope requestScope, attempt int) error {
+	if err := c.waitForRetry(ctx, attempt); err != nil {
+		c.finishRequest(scope, 0, err)
+		return err
+	}
+	return nil
+}
+
 func (c *Client) recordCircuitBreakerCompletion(statusCode int, err error) {
 	if c.circuitBreaker == nil {
 		return
@@ -327,8 +356,7 @@ func (c *Client) DoRaw(ctx context.Context, req Request) (*Response, error) {
 	}
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err := c.waitForRetry(ctx, attempt); err != nil {
-			c.finishRequest(scope, 0, err)
+		if err := c.waitForRetryAttempt(ctx, scope, attempt); err != nil {
 			return nil, err
 		}
 
@@ -340,8 +368,7 @@ func (c *Client) DoRaw(ctx context.Context, req Request) (*Response, error) {
 			// Client-side timeouts are already the caller's latency budget. Do
 			// not retry them, or the logical request can outlive HTTP_TIMEOUT.
 			if scope.halfOpenProbe || isClientTimeoutGatewayError(lastErr) {
-				c.recordCircuitBreakerCompletion(lastStatusCode, lastErr)
-				c.finishRequest(scope, lastStatusCode, lastErr)
+				c.completeScope(scope, lastStatusCode, lastErr, lastErr)
 				return nil, lastErr
 			}
 			continue
@@ -353,8 +380,7 @@ func (c *Client) DoRaw(ctx context.Context, req Request) (*Response, error) {
 			lastStatusCode = resp.StatusCode
 			lastErrFromTransport = false
 			if scope.halfOpenProbe {
-				c.recordCircuitBreakerCompletion(lastStatusCode, nil)
-				c.finishRequest(scope, lastStatusCode, lastErr)
+				c.completeScope(scope, lastStatusCode, lastErr, nil)
 				return nil, lastErr
 			}
 			continue
@@ -362,15 +388,13 @@ func (c *Client) DoRaw(ctx context.Context, req Request) (*Response, error) {
 
 		// Non-retryable error
 		if resp.StatusCode != http.StatusOK {
-			c.recordCircuitBreakerCompletion(resp.StatusCode, nil)
-			err := core.ParseProviderError(c.config.ProviderName, resp.StatusCode, resp.Body, nil)
-			c.finishRequest(scope, resp.StatusCode, err)
-			return nil, err
+			parsedErr := core.ParseProviderError(c.config.ProviderName, resp.StatusCode, resp.Body, nil)
+			c.completeScope(scope, resp.StatusCode, parsedErr, nil)
+			return nil, parsedErr
 		}
 
 		// Success
-		c.recordCircuitBreakerCompletion(resp.StatusCode, nil)
-		c.finishRequest(scope, resp.StatusCode, nil)
+		c.completeScope(scope, resp.StatusCode, nil, nil)
 		return resp, nil
 	}
 
@@ -380,14 +404,10 @@ func (c *Client) DoRaw(ctx context.Context, req Request) (*Response, error) {
 		if lastErrFromTransport {
 			circuitErr = lastErr
 		}
-		c.recordCircuitBreakerCompletion(lastStatusCode, circuitErr)
-		c.finishRequest(scope, lastStatusCode, lastErr)
+		c.completeScope(scope, lastStatusCode, lastErr, circuitErr)
 		return nil, lastErr
 	}
-	err = core.NewProviderError(c.config.ProviderName, http.StatusBadGateway, "request failed after retries", nil)
-	c.recordCircuitBreakerCompletion(http.StatusBadGateway, err)
-	c.finishRequest(scope, http.StatusBadGateway, err)
-	return nil, err
+	return nil, c.failAfterRetries(scope)
 }
 
 // DoStream executes a streaming request, returning a ReadCloser
@@ -401,8 +421,8 @@ func (c *Client) DoStream(ctx context.Context, req Request) (io.ReadCloser, erro
 
 	resp, err := c.doHTTPRequest(scope.ctx, req)
 	if err != nil {
-		c.recordCircuitBreakerCompletion(extractStatusCode(err), err)
-		c.finishRequest(scope, extractStatusCode(err), err)
+		statusCode := extractStatusCode(err)
+		c.completeScope(scope, statusCode, err, err)
 		return nil, err
 	}
 
@@ -413,14 +433,12 @@ func (c *Client) DoStream(ctx context.Context, req Request) (io.ReadCloser, erro
 		}
 		_ = resp.Body.Close()
 
-		c.recordCircuitBreakerCompletion(resp.StatusCode, nil)
 		providerErr := core.ParseProviderError(c.config.ProviderName, resp.StatusCode, respBody, nil)
-		c.finishRequest(scope, resp.StatusCode, providerErr)
+		c.completeScope(scope, resp.StatusCode, providerErr, nil)
 		return nil, providerErr
 	}
 
-	c.recordCircuitBreakerCompletion(resp.StatusCode, nil)
-	c.finishRequest(scope, resp.StatusCode, nil)
+	c.completeScope(scope, resp.StatusCode, nil, nil)
 	return resp.Body, nil
 }
 
@@ -469,8 +487,7 @@ func (c *Client) DoPassthrough(ctx context.Context, req Request) (*http.Response
 	}
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err := c.waitForRetry(ctx, attempt); err != nil {
-			c.finishRequest(scope, 0, err)
+		if err := c.waitForRetryAttempt(ctx, scope, attempt); err != nil {
 			return nil, err
 		}
 
@@ -478,8 +495,7 @@ func (c *Client) DoPassthrough(ctx context.Context, req Request) (*http.Response
 		if err != nil {
 			statusCode := extractStatusCode(err)
 			if scope.halfOpenProbe || isClientTimeoutGatewayError(err) || attempt == maxAttempts-1 {
-				c.recordCircuitBreakerCompletion(statusCode, err)
-				c.finishRequest(scope, statusCode, err)
+				c.completeScope(scope, statusCode, err, err)
 				return nil, err
 			}
 			continue
@@ -488,23 +504,18 @@ func (c *Client) DoPassthrough(ctx context.Context, req Request) (*http.Response
 		retryable := c.isRetryable(resp.StatusCode)
 		if retryable {
 			if scope.halfOpenProbe || attempt == maxAttempts-1 {
-				c.recordCircuitBreakerCompletion(resp.StatusCode, nil)
-				c.finishRequest(scope, resp.StatusCode, nil)
+				c.completeScope(scope, resp.StatusCode, nil, nil)
 				return resp, nil
 			}
 			_ = resp.Body.Close()
 			continue
 		}
 
-		c.recordCircuitBreakerCompletion(resp.StatusCode, nil)
-		c.finishRequest(scope, resp.StatusCode, nil)
+		c.completeScope(scope, resp.StatusCode, nil, nil)
 		return resp, nil
 	}
 
-	err = core.NewProviderError(c.config.ProviderName, http.StatusBadGateway, "request failed after retries", nil)
-	c.recordCircuitBreakerCompletion(http.StatusBadGateway, err)
-	c.finishRequest(scope, http.StatusBadGateway, err)
-	return nil, err
+	return nil, c.failAfterRetries(scope)
 }
 
 // extractModel attempts to extract the model name from a request body
