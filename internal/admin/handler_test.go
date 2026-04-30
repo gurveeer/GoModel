@@ -1260,6 +1260,59 @@ func TestAuditConversation_Error(t *testing.T) {
 	}
 }
 
+// --- Validation-before-fast-path tests ---
+//
+// AuditLog, AuditConversation, and UsageLog all short-circuit to an empty
+// success payload when their reader is nil. These tests assert that request-
+// shape validation runs *before* that fast path, so callers get a 400 for
+// missing/malformed required params regardless of whether the underlying
+// reader is wired up.
+
+func TestAuditLog_NilReaderStillValidatesParams(t *testing.T) {
+	h := NewHandler(nil, nil) // no audit reader configured
+	c, rec := newHandlerContext("/admin/api/v1/audit/log?status_code=not-an-int")
+
+	if err := h.AuditLog(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+	if !containsString(rec.Body.String(), "invalid_request_error") {
+		t.Errorf("expected invalid_request_error, got: %s", rec.Body.String())
+	}
+}
+
+func TestAuditConversation_NilReaderStillValidatesParams(t *testing.T) {
+	h := NewHandler(nil, nil) // no audit reader configured
+	c, rec := newHandlerContext("/admin/api/v1/audit/conversation") // missing required log_id
+
+	if err := h.AuditConversation(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+	if !containsString(rec.Body.String(), "log_id is required") {
+		t.Errorf("expected log_id-is-required, got: %s", rec.Body.String())
+	}
+}
+
+func TestUsageLog_NilReaderStillValidatesParams(t *testing.T) {
+	h := NewHandler(nil, nil) // no usage reader configured
+	c, rec := newHandlerContext("/admin/api/v1/usage/log?start_date=not-a-date")
+
+	if err := h.UsageLog(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+	if !containsString(rec.Body.String(), "invalid_request_error") {
+		t.Errorf("expected invalid_request_error, got: %s", rec.Body.String())
+	}
+}
+
 // --- ListModels handler tests ---
 
 func TestListModels_NilRegistry(t *testing.T) {
