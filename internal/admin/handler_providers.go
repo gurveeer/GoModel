@@ -110,6 +110,13 @@ func (h *Handler) collectProviderStatusInputs() (
 // (either side may be zero-valued when only one source knows the name) and
 // produces the response row.
 func buildProviderStatusItem(name string, cfg providers.SanitizedProviderConfig, runtime providers.ProviderRuntimeSnapshot) providerStatusItemResponse {
+	// Classify against the inputs as-given so the "Unknown" branch in
+	// classifyProviderStatus stays reachable for runtime-only providers.
+	// Synthesising cfg.Name first would always make the provider look
+	// configured to the classifier.
+	status, label, reason, lastError := classifyProviderStatus(cfg, runtime)
+
+	// For the response row, fill in display fallbacks from the peer side.
 	if strings.TrimSpace(cfg.Name) == "" {
 		cfg = providers.SanitizedProviderConfig{Name: name, Type: strings.TrimSpace(runtime.Type)}
 	}
@@ -123,7 +130,6 @@ func buildProviderStatusItem(name string, cfg providers.SanitizedProviderConfig,
 		runtime.Type = strings.TrimSpace(cfg.Type)
 	}
 
-	status, label, reason, lastError := classifyProviderStatus(cfg, runtime)
 	return providerStatusItemResponse{
 		Name:         name,
 		Type:         strings.TrimSpace(cfg.Type),
