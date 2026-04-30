@@ -34,13 +34,15 @@ const maxUsageLogLimit = 200
 // @Failure      401  {object}  core.GatewayError
 // @Router       /admin/api/v1/usage/summary [get]
 func (h *Handler) UsageSummary(c *echo.Context) error {
-	if h.usageReader == nil {
-		return c.JSON(http.StatusOK, usage.UsageSummary{})
-	}
-
+	// Validate request shape before the disabled-reader fast path so callers
+	// always get a 400 for malformed inputs, regardless of wiring.
 	params, err := parseUsageParams(c)
 	if err != nil {
 		return handleError(c, err)
+	}
+
+	if h.usageReader == nil {
+		return c.JSON(http.StatusOK, usage.UsageSummary{})
 	}
 
 	summary, err := h.usageReader.GetSummary(c.Request().Context(), params)
@@ -59,13 +61,15 @@ func usageSliceResponse[T any](
 	reader usage.UsageReader,
 	fetch func(context.Context, usage.UsageQueryParams) ([]T, error),
 ) error {
-	if reader == nil {
-		return c.JSON(http.StatusOK, []T{})
-	}
-
+	// Validate before the disabled-reader fast path so malformed query
+	// params produce a 400 even when usage tracking is disabled.
 	params, err := parseUsageParams(c)
 	if err != nil {
 		return handleError(c, err)
+	}
+
+	if reader == nil {
+		return c.JSON(http.StatusOK, []T{})
 	}
 
 	values, err := fetch(c.Request().Context(), params)
@@ -163,12 +167,8 @@ func (h *Handler) UsageByUserPath(c *echo.Context) error {
 // @Failure      401  {object}  core.GatewayError
 // @Router       /admin/api/v1/usage/log [get]
 func (h *Handler) UsageLog(c *echo.Context) error {
-	if h.usageReader == nil {
-		return c.JSON(http.StatusOK, usage.UsageLogResult{
-			Entries: []usage.UsageLogEntry{},
-		})
-	}
-
+	// Validate request shape before the disabled-reader fast path so callers
+	// always get a 400 for malformed inputs, regardless of wiring.
 	baseParams, err := parseUsageParams(c)
 	if err != nil {
 		return handleError(c, err)
@@ -197,6 +197,12 @@ func (h *Handler) UsageLog(c *echo.Context) error {
 			return handleError(c, core.NewInvalidRequestError("invalid offset, expected non-negative integer", nil))
 		}
 		params.Offset = parsed
+	}
+
+	if h.usageReader == nil {
+		return c.JSON(http.StatusOK, usage.UsageLogResult{
+			Entries: []usage.UsageLogEntry{},
+		})
 	}
 
 	result, err := h.usageReader.GetUsageLog(c.Request().Context(), params)
@@ -282,20 +288,26 @@ func (h *Handler) RecalculateUsagePricing(c *echo.Context) error {
 // @Failure      503  {object}  core.GatewayError
 // @Router       /admin/api/v1/cache/overview [get]
 func (h *Handler) CacheOverview(c *echo.Context) error {
+	// Feature-gate check stays first: this endpoint is conceptually unavailable
+	// when cache analytics is off, and the response shape (503) communicates
+	// that to the dashboard.
 	if strings.TrimSpace(h.runtimeConfig.CacheEnabled) != "on" {
 		return handleError(c, featureUnavailableError("cache analytics is unavailable"))
 	}
-	if h.usageReader == nil {
-		return c.JSON(http.StatusOK, usage.CacheOverview{
-			Daily: []usage.CacheOverviewDaily{},
-		})
-	}
 
+	// Validate request shape before the disabled-reader fast path so callers
+	// always get a 400 for malformed inputs, regardless of wiring.
 	params, err := parseUsageParams(c)
 	if err != nil {
 		return handleError(c, err)
 	}
 	params.CacheMode = usage.CacheModeCached
+
+	if h.usageReader == nil {
+		return c.JSON(http.StatusOK, usage.CacheOverview{
+			Daily: []usage.CacheOverviewDaily{},
+		})
+	}
 
 	overview, err := h.usageReader.GetCacheOverview(c.Request().Context(), params)
 	if err != nil {

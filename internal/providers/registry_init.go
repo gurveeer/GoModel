@@ -270,15 +270,16 @@ func (r *ModelRegistry) applyProviderRuntimeUpdatesLocked(updates map[string]pro
 		current.registered = update.registered || current.registered
 		if !update.lastModelFetchAt.IsZero() {
 			current.lastModelFetchAt = update.lastModelFetchAt
+			// A non-zero fetchAt represents a refresh attempt whose outcome
+			// is captured authoritatively in lastModelFetchError (empty =
+			// success, non-empty = failure). Overwrite unconditionally so an
+			// old error doesn't survive a subsequent successful refresh —
+			// this matters in particular for allowlist-mode refreshes which
+			// don't bump SuccessAt but still produce usable models.
+			current.lastModelFetchError = strings.TrimSpace(update.lastModelFetchError)
 		}
 		if !update.lastModelFetchSuccessAt.IsZero() {
 			current.lastModelFetchSuccessAt = update.lastModelFetchSuccessAt
-			if strings.TrimSpace(update.lastModelFetchError) == "" {
-				current.lastModelFetchError = ""
-			}
-		}
-		if strings.TrimSpace(update.lastModelFetchError) != "" {
-			current.lastModelFetchError = update.lastModelFetchError
 		}
 		r.providerRuntime[providerName] = current
 	}
