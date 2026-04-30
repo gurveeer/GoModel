@@ -57,31 +57,37 @@ func (h *Handler) ListModels(c *echo.Context) error {
 	if models == nil {
 		models = []providers.ModelWithProvider{}
 	}
-	if h.modelOverrides == nil {
-		response := make([]modelInventoryResponse, 0, len(models))
-		for _, model := range models {
-			selector := core.ModelSelector{
-				Provider: strings.TrimSpace(model.ProviderName),
-				Model:    strings.TrimSpace(model.Model.ID),
-			}
-			response = append(response, modelInventoryResponse{
-				ModelWithProvider: model,
-				Access: modelAccessResponse{
-					Selector:         selector.QualifiedModel(),
-					DefaultEnabled:   true,
-					EffectiveEnabled: true,
-				},
-			})
-		}
-		return c.JSON(http.StatusOK, response)
-	}
-
+	access := h.modelAccessResolver()
 	response := make([]modelInventoryResponse, 0, len(models))
 	for _, model := range models {
 		selector := core.ModelSelector{
 			Provider: strings.TrimSpace(model.ProviderName),
 			Model:    strings.TrimSpace(model.Model.ID),
 		}
+		response = append(response, modelInventoryResponse{
+			ModelWithProvider: model,
+			Access:            access(selector),
+		})
+	}
+
+	return c.JSON(http.StatusOK, response)
+}
+
+// modelAccessResolver returns a function that produces the access view for a
+// given selector. When model overrides are configured the resolver consults
+// the service for effective state; otherwise every model is reported as
+// default-on.
+func (h *Handler) modelAccessResolver() func(core.ModelSelector) modelAccessResponse {
+	if h.modelOverrides == nil {
+		return func(selector core.ModelSelector) modelAccessResponse {
+			return modelAccessResponse{
+				Selector:         selector.QualifiedModel(),
+				DefaultEnabled:   true,
+				EffectiveEnabled: true,
+			}
+		}
+	}
+	return func(selector core.ModelSelector) modelAccessResponse {
 		effective := h.modelOverrides.EffectiveState(selector)
 		access := modelAccessResponse{
 			Selector:         effective.Selector,
@@ -93,13 +99,8 @@ func (h *Handler) ListModels(c *echo.Context) error {
 			overrideCopy := *override
 			access.Override = &overrideCopy
 		}
-		response = append(response, modelInventoryResponse{
-			ModelWithProvider: model,
-			Access:            access,
-		})
+		return access
 	}
-
-	return c.JSON(http.StatusOK, response)
 }
 
 // isValidCategory returns true if cat is a recognized model category.

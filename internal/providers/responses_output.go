@@ -146,23 +146,25 @@ func BuildResponsesOutputItems(msg core.ResponseMessage) []core.ResponsesOutputI
 
 // ConvertChatResponseToResponses converts a ChatResponse to a ResponsesResponse.
 func ConvertChatResponseToResponses(resp *core.ChatResponse) *core.ResponsesResponse {
-	output := []core.ResponsesOutputItem{
-		{
-			ID:     "msg_" + uuid.New().String(),
-			Type:   "message",
-			Role:   "assistant",
-			Status: "completed",
-			Content: []core.ResponsesContentItem{
-				{
-					Type:        "output_text",
-					Text:        "",
-					Annotations: []json.RawMessage{},
-				},
-			},
-		},
-	}
+	var output []core.ResponsesOutputItem
 	if len(resp.Choices) > 0 {
 		output = BuildResponsesOutputItems(resp.Choices[0].Message)
+	} else {
+		output = []core.ResponsesOutputItem{
+			{
+				ID:     "msg_" + uuid.New().String(),
+				Type:   "message",
+				Role:   "assistant",
+				Status: "completed",
+				Content: []core.ResponsesContentItem{
+					{
+						Type:        "output_text",
+						Text:        "",
+						Annotations: []json.RawMessage{},
+					},
+				},
+			},
+		}
 	}
 
 	return &core.ResponsesResponse{
