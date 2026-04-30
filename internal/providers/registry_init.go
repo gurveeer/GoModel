@@ -332,9 +332,11 @@ func (r *ModelRegistry) InitializeAsync(ctx context.Context) {
 		slog.Info("serving traffic with cached models while refreshing", "cached_models", cached)
 	}
 
-	// Start background initialization
+	// Start background initialization. Derive the timeout from the caller's
+	// ctx so shutdown cancellation propagates instead of leaving the goroutine
+	// running until the 60s timeout fires on its own.
 	go func() {
-		initCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		initCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 
 		if err := r.Initialize(initCtx); err != nil {

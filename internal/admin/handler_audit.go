@@ -90,14 +90,18 @@ func (h *Handler) AuditLog(c *echo.Context) error {
 	}
 
 	if l := c.QueryParam("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
-			params.Limit = parsed
+		parsed, err := strconv.Atoi(l)
+		if err != nil || parsed <= 0 {
+			return handleError(c, core.NewInvalidRequestError("invalid limit, expected positive integer", nil))
 		}
+		params.Limit = parsed
 	}
 	if o := c.QueryParam("offset"); o != "" {
-		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
-			params.Offset = parsed
+		parsed, err := strconv.Atoi(o)
+		if err != nil || parsed < 0 {
+			return handleError(c, core.NewInvalidRequestError("invalid offset, expected non-negative integer", nil))
 		}
+		params.Offset = parsed
 	}
 
 	result, err := h.auditReader.GetLogs(c.Request().Context(), params)

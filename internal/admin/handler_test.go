@@ -1074,6 +1074,52 @@ func TestAuditLog_InvalidStream(t *testing.T) {
 	}
 }
 
+func TestAuditLog_InvalidLimit(t *testing.T) {
+	cases := []string{"abc", "0", "-1"}
+	for _, q := range cases {
+		t.Run(q, func(t *testing.T) {
+			reader := &mockAuditReader{
+				logResult: &auditlog.LogListResult{Entries: []auditlog.LogEntry{}},
+			}
+			h := NewHandler(nil, nil, WithAuditReader(reader))
+			c, rec := newHandlerContext("/admin/api/v1/audit/log?limit=" + q)
+
+			if err := h.AuditLog(c); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("expected 400 for limit=%q, got %d", q, rec.Code)
+			}
+			if !containsString(rec.Body.String(), "invalid_request_error") {
+				t.Errorf("expected invalid_request_error in body for limit=%q, got: %s", q, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestAuditLog_InvalidOffset(t *testing.T) {
+	cases := []string{"abc", "-1"}
+	for _, q := range cases {
+		t.Run(q, func(t *testing.T) {
+			reader := &mockAuditReader{
+				logResult: &auditlog.LogListResult{Entries: []auditlog.LogEntry{}},
+			}
+			h := NewHandler(nil, nil, WithAuditReader(reader))
+			c, rec := newHandlerContext("/admin/api/v1/audit/log?offset=" + q)
+
+			if err := h.AuditLog(c); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("expected 400 for offset=%q, got %d", q, rec.Code)
+			}
+			if !containsString(rec.Body.String(), "invalid_request_error") {
+				t.Errorf("expected invalid_request_error in body for offset=%q, got: %s", q, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestAuditLog_Error(t *testing.T) {
 	reader := &mockAuditReader{
 		logErr: core.NewProviderError("test", http.StatusBadGateway, "upstream failed", nil),

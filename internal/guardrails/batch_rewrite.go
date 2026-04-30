@@ -7,10 +7,15 @@ import (
 )
 
 func rewriteGuardedChatBatchBody(originalBody json.RawMessage, original *core.ChatRequest, modified *core.ChatRequest) (json.RawMessage, error) {
+	if modified == nil {
+		return nil, core.NewInvalidRequestError("missing guarded chat request", nil)
+	}
 	body, err := patchGuardedChatBatchBody(originalBody, original, modified)
 	if err == nil {
 		return body, nil
 	}
+	// Fallback: serialize the modified request directly when raw-body
+	// preservation fails (e.g., when the original body is malformed JSON).
 	return json.Marshal(modified)
 }
 
