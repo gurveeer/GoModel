@@ -47,6 +47,9 @@ func (h *Handler) UsageSummary(c *echo.Context) error {
 	if err != nil {
 		return handleError(c, err)
 	}
+	if summary == nil {
+		summary = &usage.UsageSummary{}
+	}
 
 	return c.JSON(http.StatusOK, summary)
 }
@@ -200,7 +203,9 @@ func (h *Handler) UsageLog(c *echo.Context) error {
 	if err != nil {
 		return handleError(c, err)
 	}
-
+	if result == nil {
+		result = &usage.UsageLogResult{Entries: []usage.UsageLogEntry{}}
+	}
 	if result.Entries == nil {
 		result.Entries = []usage.UsageLogEntry{}
 	}

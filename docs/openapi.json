@@ -780,6 +780,41 @@
         ]
       }
     },
+    "/admin/api/v1/dashboard/config": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get dashboard runtime configuration",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/admin.DashboardConfigResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/core.GatewayError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/admin/api/v1/models": {
       "get": {
         "tags": [
@@ -805,7 +840,9 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/admin.modelInventoryResponse"
-                  }
+                  },
+                  "maxItems": 10000,
+                  "description": "Bounded by maxItems=10000."
                 }
               }
             }
@@ -4564,6 +4601,38 @@
       }
     },
     "schemas": {
+      "admin.DashboardConfigResponse": {
+        "type": "object",
+        "properties": {
+          "BUDGETS_ENABLED": {
+            "type": "string"
+          },
+          "CACHE_ENABLED": {
+            "type": "string"
+          },
+          "FEATURE_FALLBACK_MODE": {
+            "type": "string"
+          },
+          "GUARDRAILS_ENABLED": {
+            "type": "string"
+          },
+          "LOGGING_ENABLED": {
+            "type": "string"
+          },
+          "REDIS_URL": {
+            "type": "string"
+          },
+          "SEMANTIC_CACHE_ENABLED": {
+            "type": "string"
+          },
+          "USAGE_ENABLED": {
+            "type": "string"
+          },
+          "USAGE_PRICING_RECALCULATION_ENABLED": {
+            "type": "string"
+          }
+        }
+      },
       "admin.auditLogEntryResponse": {
         "type": "object",
         "properties": {

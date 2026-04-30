@@ -19,6 +19,9 @@ import (
 // Initialize fetches models from all registered providers and populates the registry.
 // This should be called on application startup.
 func (r *ModelRegistry) Initialize(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	release, err := r.acquireRefresh(ctx)
 	if err != nil {
 		return err
@@ -324,6 +327,9 @@ func registryRefreshAcquireError(err error) *core.GatewayError {
 // Returns immediately after loading cache. The background goroutine will update models
 // and save to cache when network fetch completes.
 func (r *ModelRegistry) InitializeAsync(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	// First, try to load from cache for instant startup
 	cached, err := r.LoadFromCache(ctx)
 	if err != nil {
@@ -427,6 +433,9 @@ func (r *ModelRegistry) StartBackgroundRefresh(interval time.Duration, modelList
 func (r *ModelRegistry) RefreshModelList(ctx context.Context, url string) (int, error) {
 	if strings.TrimSpace(url) == "" {
 		return 0, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	release, err := r.acquireRefresh(ctx)

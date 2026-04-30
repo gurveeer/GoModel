@@ -633,6 +633,36 @@ const docTemplate = `{
                 ]
             }
         },
+        "/admin/api/v1/dashboard/config": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get dashboard runtime configuration",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.DashboardConfigResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/core.GatewayError"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
         "/admin/api/v1/models": {
             "get": {
                 "produces": [
@@ -3089,6 +3119,38 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "admin.DashboardConfigResponse": {
+            "type": "object",
+            "properties": {
+                "BUDGETS_ENABLED": {
+                    "type": "string"
+                },
+                "CACHE_ENABLED": {
+                    "type": "string"
+                },
+                "FEATURE_FALLBACK_MODE": {
+                    "type": "string"
+                },
+                "GUARDRAILS_ENABLED": {
+                    "type": "string"
+                },
+                "LOGGING_ENABLED": {
+                    "type": "string"
+                },
+                "REDIS_URL": {
+                    "type": "string"
+                },
+                "SEMANTIC_CACHE_ENABLED": {
+                    "type": "string"
+                },
+                "USAGE_ENABLED": {
+                    "type": "string"
+                },
+                "USAGE_PRICING_RECALCULATION_ENABLED": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.auditLogEntryResponse": {
             "type": "object",
             "properties": {

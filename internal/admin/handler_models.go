@@ -128,6 +128,14 @@ func (h *Handler) ListCategories(c *echo.Context) error {
 }
 
 // DashboardConfig handles GET /admin/api/v1/dashboard/config
+//
+// @Summary      Get dashboard runtime configuration
+// @Tags         admin
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  DashboardConfigResponse
+// @Failure      401  {object}  core.GatewayError
+// @Router       /admin/api/v1/dashboard/config [get]
 func (h *Handler) DashboardConfig(c *echo.Context) error {
 	return c.JSON(http.StatusOK, cloneDashboardRuntimeConfig(h.runtimeConfig))
 }

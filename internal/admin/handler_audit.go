@@ -14,6 +14,10 @@ import (
 	"gomodel/internal/usage"
 )
 
+// maxAuditLogLimit caps the page size accepted by the audit log endpoint and
+// matches the value documented in the @Param limit annotation below.
+const maxAuditLogLimit = 100
+
 // AuditLog handles GET /admin/api/v1/audit/log
 //
 // @Summary      Get paginated audit log entries
@@ -90,6 +94,9 @@ func (h *Handler) AuditLog(c *echo.Context) error {
 		parsed, err := strconv.Atoi(l)
 		if err != nil || parsed <= 0 {
 			return handleError(c, core.NewInvalidRequestError("invalid limit, expected positive integer", nil))
+		}
+		if parsed > maxAuditLogLimit {
+			return handleError(c, core.NewInvalidRequestError("invalid limit parameter: limit must be between 1 and 100", nil))
 		}
 		params.Limit = parsed
 	}

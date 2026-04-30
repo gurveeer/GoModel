@@ -11,6 +11,9 @@ func rewriteGuardedChatBatchBody(originalBody json.RawMessage, original *core.Ch
 	if modified == nil {
 		return nil, core.NewInvalidRequestError("missing guarded chat request", nil)
 	}
+	if original == nil {
+		return nil, core.NewInvalidRequestError("missing original chat request", nil)
+	}
 	body, err := patchGuardedChatBatchBody(originalBody, original, modified)
 	if err == nil {
 		return body, nil
@@ -28,6 +31,9 @@ func rewriteGuardedChatBatchBody(originalBody json.RawMessage, original *core.Ch
 func patchGuardedChatBatchBody(originalBody json.RawMessage, original *core.ChatRequest, modified *core.ChatRequest) (json.RawMessage, error) {
 	if modified == nil {
 		return nil, core.NewInvalidRequestError("missing guarded chat request", nil)
+	}
+	if original == nil {
+		return nil, core.NewInvalidRequestError("missing original chat request", nil)
 	}
 
 	var raw map[string]json.RawMessage
