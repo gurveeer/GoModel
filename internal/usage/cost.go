@@ -18,6 +18,8 @@ const (
 	CostSourceXAITicks          = "xai_cost_in_usd_ticks"
 )
 
+// xAI reports usage.cost_in_usd_ticks as USD-denominated ticks, where 10^10
+// ticks equals 1 USD.
 const xaiUSDTicksPerUSD = 10_000_000_000
 
 // CostResult holds the result of a granular cost calculation.
