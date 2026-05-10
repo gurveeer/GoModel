@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -10,12 +11,14 @@ import (
 
 	"gomodel/internal/auditlog"
 	"gomodel/internal/core"
+	"gomodel/internal/filestore"
 )
 
 // nativeFileService owns native file orchestration so HTTP handlers can remain
 // thin transport adapters.
 type nativeFileService struct {
-	provider core.RoutableProvider
+	provider  core.RoutableProvider
+	fileStore filestore.Store
 }
 
 func (s *nativeFileService) router() (core.NativeFileRoutableProvider, error) {
@@ -38,6 +41,7 @@ func (s *nativeFileService) fileByID(
 	c *echo.Context,
 	callFn func(core.NativeFileRoutableProvider, string, string) (any, error),
 	respondFn func(*echo.Context, any) error,
+	onSuccess func(context.Context, string, string) error,
 ) error {
 	nativeRouter, err := s.router()
 	if err != nil {
@@ -60,7 +64,33 @@ func (s *nativeFileService) fileByID(
 		if err != nil {
 			return handleError(c, err)
 		}
+		if onSuccess != nil {
+			if err := onSuccess(c.Request().Context(), providerType, id); err != nil {
+				return handleError(c, err)
+			}
+		}
 		return respondFn(c, result)
+	}
+
+	if providerType, ok, err := s.storedProviderForFile(c.Request().Context(), id); err != nil {
+		return handleError(c, err)
+	} else if ok {
+		result, err := callFn(nativeRouter, providerType, id)
+		if err == nil {
+			auditlog.EnrichEntry(c, "file", providerType)
+			if onSuccess != nil {
+				if err := onSuccess(c.Request().Context(), providerType, id); err != nil {
+					return handleError(c, err)
+				}
+			}
+			return respondFn(c, result)
+		}
+		if !isNotFoundGatewayError(err) && !isUnsupportedNativeFilesError(err) {
+			return handleError(c, err)
+		}
+		if err := s.deleteStoredFileMapping(c.Request().Context(), id); err != nil {
+			slog.Warn("failed to delete stale file provider mapping", "file_id", id, "provider", providerType, "error", err)
+		}
 	}
 
 	providers, err := s.providerTypes()
@@ -74,6 +104,11 @@ func (s *nativeFileService) fileByID(
 		result, err := callFn(nativeRouter, candidate, id)
 		if err == nil {
 			auditlog.EnrichEntry(c, "file", candidate)
+			if onSuccess != nil {
+				if err := onSuccess(c.Request().Context(), candidate, id); err != nil {
+					return handleError(c, err)
+				}
+			}
 			return respondFn(c, result)
 		}
 		if isNotFoundGatewayError(err) || isUnsupportedNativeFilesError(err) {
@@ -146,6 +181,13 @@ func (s *nativeFileService) CreateFile(c *echo.Context) error {
 	if err != nil {
 		return handleError(c, err)
 	}
+	if err := s.recordStoredFile(ctx, resp, providerType); err != nil {
+		fileID := ""
+		if resp != nil {
+			fileID = resp.ID
+		}
+		slog.Warn("failed to persist file provider mapping", "file_id", fileID, "provider", providerType, "error", err)
+	}
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -209,6 +251,7 @@ func (s *nativeFileService) GetFile(c *echo.Context) error {
 		func(c *echo.Context, result any) error {
 			return c.JSON(http.StatusOK, result)
 		},
+		nil,
 	)
 }
 
@@ -219,6 +262,12 @@ func (s *nativeFileService) DeleteFile(c *echo.Context) error {
 		},
 		func(c *echo.Context, result any) error {
 			return c.JSON(http.StatusOK, result)
+		},
+		func(ctx context.Context, providerType, id string) error {
+			if err := s.deleteStoredFileMapping(ctx, id); err != nil {
+				slog.Warn("failed to delete file provider mapping", "file_id", id, "provider", providerType, "error", err)
+			}
+			return nil
 		},
 	)
 }
@@ -239,7 +288,60 @@ func (s *nativeFileService) GetFileContent(c *echo.Context) error {
 			}
 			return c.Blob(http.StatusOK, contentType, resp.Data)
 		},
+		nil,
 	)
+}
+
+func (s *nativeFileService) recordStoredFile(ctx context.Context, resp *core.FileObject, providerType string) error {
+	if s.fileStore == nil || resp == nil {
+		return nil
+	}
+	if strings.TrimSpace(resp.ID) == "" {
+		return nil
+	}
+	createdAt := resp.CreatedAt
+	if createdAt <= 0 {
+		createdAt = 0
+	}
+	if err := s.fileStore.Upsert(ctx, &filestore.StoredFile{
+		ID:           resp.ID,
+		ProviderType: providerType,
+		Purpose:      resp.Purpose,
+		Filename:     resp.Filename,
+		Bytes:        resp.Bytes,
+		CreatedAt:    createdAt,
+		UserPath:     core.UserPathFromContext(ctx),
+	}); err != nil {
+		return core.NewProviderError("file_store", http.StatusInternalServerError, "failed to persist file provider mapping", err)
+	}
+	return nil
+}
+
+func (s *nativeFileService) storedProviderForFile(ctx context.Context, id string) (string, bool, error) {
+	if s.fileStore == nil {
+		return "", false, nil
+	}
+	stored, err := s.fileStore.Get(ctx, id)
+	if err != nil {
+		if !errors.Is(err, filestore.ErrNotFound) {
+			slog.Warn("failed to look up file provider mapping", "file_id", id, "error", err)
+		}
+		return "", false, nil
+	}
+	if stored != nil && strings.TrimSpace(stored.ProviderType) != "" {
+		return strings.TrimSpace(stored.ProviderType), true, nil
+	}
+	return "", false, nil
+}
+
+func (s *nativeFileService) deleteStoredFileMapping(ctx context.Context, id string) error {
+	if s.fileStore == nil {
+		return nil
+	}
+	if err := s.fileStore.Delete(ctx, id); err != nil && !errors.Is(err, filestore.ErrNotFound) {
+		return core.NewProviderError("file_store", http.StatusInternalServerError, "failed to delete file provider mapping", err)
+	}
+	return nil
 }
 
 func isNotFoundGatewayError(err error) bool {
