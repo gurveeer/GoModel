@@ -34,7 +34,6 @@ import (
 	"gomodel/internal/version"
 
 	"github.com/joho/godotenv"
-	"golang.org/x/term"
 )
 
 type lifecycleApp interface {
@@ -76,7 +75,7 @@ func startApplication(application lifecycleApp, addr string) error {
 
 // @title          GoModel API
 // @version        1.0
-// @description    High-performance AI gateway routing requests to multiple LLM providers (OpenAI, Anthropic, Gemini, Groq, OpenRouter, DeepSeek, Z.ai, xAI, MiniMax, Oracle, Ollama). Drop-in OpenAI-compatible API.
+// @description    AI gateway routing requests to multiple LLM providers (OpenAI, Anthropic, Gemini, Groq, OpenRouter, DeepSeek, Z.ai, xAI, MiniMax, Oracle, Ollama). Drop-in OpenAI-compatible API.
 // @BasePath       /
 // @schemes        http
 // @securityDefinitions.apikey BearerAuth
@@ -93,7 +92,7 @@ func main() {
 
 	_ = godotenv.Load()
 
-	if err := configureLogging(os.Stderr, term.IsTerminal(int(os.Stderr.Fd()))); err != nil {
+	if err := configureLogging(os.Stderr); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to configure logging: %v\n", err)
 		os.Exit(1)
 	}

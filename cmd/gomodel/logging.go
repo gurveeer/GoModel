@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lmittmann/tint"
+	"golang.org/x/term"
 )
 
 const (
@@ -16,14 +17,22 @@ const (
 	envLogLevel  = "LOG_LEVEL"
 )
 
-func configureLogging(w io.Writer, isTTY bool) error {
+func configureLogging(w io.Writer) error {
 	level, err := parseLogLevel(os.Getenv(envLogLevel))
 	if err != nil {
 		return err
 	}
 
-	slog.SetDefault(slog.New(newLogHandler(w, isTTY, os.Getenv(envLogFormat), level)))
+	slog.SetDefault(slog.New(newLogHandler(w, detectTTY(w), os.Getenv(envLogFormat), level)))
 	return nil
+}
+
+func detectTTY(w io.Writer) bool {
+	file, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	return term.IsTerminal(int(file.Fd()))
 }
 
 func newLogHandler(w io.Writer, isTTY bool, format string, level slog.Level) slog.Handler {
